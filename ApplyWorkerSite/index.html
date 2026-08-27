@@ -1,0 +1,1737 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif; background: #f4f5f7; margin: 0; padding: 16px; color: #222; }
+  .container { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { flex: 1; text-align: center; padding: 10px; border-radius: 10px; background: #e9eaee; cursor: pointer; font-weight: 600; font-size: 14px; }
+  .tab.active { background: #2f6fed; color: white; }
+  .card { background: white; border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  label { font-size: 13px; font-weight: 600; color: #444; display: block; margin: 10px 0 4px; }
+  input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; }
+  input:disabled { background: #f2f2f2; color: #888; }
+  .week-title { font-weight: 700; margin: 14px 0 6px; font-size: 14px; color: #2f6fed; }
+  .date-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  .date-row:last-child { border-bottom: none; }
+  .weekend { color: #d9534f; }
+  .shift-btns { display: flex; gap: 6px; }
+  .shift-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fafafa; font-size: 12px; cursor: pointer; user-select: none; }
+  .shift-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
+  button, .shift-btn, .location-tab, .reorder-btn, .batch-all-btn { transition: transform 0.06s ease; }
+  button:active, .shift-btn:active, .location-tab:active, .reorder-btn:active, .batch-all-btn:active { transform: scale(0.95); }
+  button.primary { width: 100%; padding: 13px; margin-top: 10px; background: #2f6fed; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  button.primary:active { background: #1f4fc0; }
+  button.primary:disabled { background: #aaa; transform: none; }
+  button.secondary { width: 100%; padding: 11px; margin-top: 8px; background: white; color: #555; border: 1px solid #ccc; border-radius: 10px; font-size: 14px; cursor: pointer; }
+  button.secondary:active { background: #eee; }
+  button.danger { width: 100%; padding: 11px; margin-top: 8px; background: #fdecea; color: #c0392b; border: 1px solid #f5c6c1; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button.danger:active { background: #fbd5d0; }
+  .msg { text-align: center; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 14px; }
+  .msg.ok { background: #e6f4ea; color: #1a7a34; }
+  .msg.err { background: #fdecea; color: #c0392b; }
+  .msg.info { background: #e8f0fe; color: #1a56db; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: left; }
+  .table-wrap { overflow-x: auto; margin-bottom: 18px; border: 1px solid #eee; border-radius: 10px; }
+  table.week-table { min-width: 620px; font-size: 12px; }
+  table.week-table th, table.week-table td { border: 1px solid #eee; padding: 6px 4px; text-align: center; vertical-align: top; }
+  table.week-table .rowhead { background: #f7f8fa; font-weight: 700; text-align: left; }
+  .shift-table-label { font-weight: 700; font-size: 13px; margin: 10px 0 4px; color: #444; }
+  .side-by-side-wrap { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; align-items: flex-start; }
+  .scroll-arrow-wrap { position: relative; }
+  .scroll-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; cursor: pointer;
+    width: 30px; height: 30px; border-radius: 50%; background: rgba(47,111,237,0.9); color: white;
+    display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+  .scroll-arrow-left { left: -6px; }
+  .scroll-arrow-right { right: -6px; }
+  .side-by-side-col { flex: 0 0 auto; }
+  table.week-table.compact { min-width: 340px; font-size: 11px; }
+  table.week-table.compact th, table.week-table.compact td { padding: 4px 3px; }
+  .reorder-btns { display: inline-flex; gap: 2px; margin-left: 4px; }
+  .reorder-btn { cursor: pointer; font-size: 10px; color: #2f6fed; padding: 1px 3px; border-radius: 3px; background: #eef1ff; }
+  tr.gender-divider td { background: #f0f2f5; font-weight: 700; font-size: 11px; color: #1a56db; }
+  .floor-clickable { cursor: pointer; }
+  .mark-circle { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #e53e3e; border-radius: 50%; }
+  .mark-square { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #1a1a1a; }
+  .mark-triangle-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
+  .mark-triangle { position: absolute; top: 1px; left: 0; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 17px solid #3182ce; }
+  .mark-char { position: relative; z-index: 1; color: white; font-weight: 700; font-size: 11px; }
+  .mark-label { color: #d97706; font-size: 9px; font-weight: 700; margin-top: 1px; }
+  .cnt.day { color: #856404; font-weight: 700; }
+  .cnt.night { color: #1a3d8f; font-weight: 700; }
+  .names { font-size: 11px; color: #555; margin-top: 2px; }
+  .location-tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 4px; }
+  .location-tab { flex-shrink: 0; padding: 8px 14px; border-radius: 20px; background: #e9eaee; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .location-tab.active { background: #2f6fed; color: white; }
+  .admin-section-title { font-weight: 700; margin: 18px 0 8px; font-size: 15px; border-top: 1px solid #eee; padding-top: 16px; }
+  .admin-section-title:first-child { border-top: none; padding-top: 0; }
+  .period-caption { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .empty { text-align: center; color: #999; padding: 20px; font-size: 14px; }
+  #calendarSection { display: none; }
+  .location-checkboxes { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; border: 1px solid #eee; border-radius: 10px; padding: 4px 12px; }
+  .location-checkboxes label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400; margin: 0; padding: 8px 0; border-bottom: 1px solid #f2f2f2; }
+  .location-checkboxes label:last-child { border-bottom: none; }
+  .location-checkboxes input[type=radio],
+  .location-checkboxes input[type=checkbox] { width: 18px; height: 18px; flex-shrink: 0; margin: 0; }
+
+  /* 배치판 (번호리스트형) */
+  .assign-date-card { background: white; border-radius: 12px; padding: 14px; margin-bottom: 10px; border: 1px solid #eee; }
+  .assign-date-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+  .shift-block { margin-bottom: 14px; }
+  .shift-header-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .shift-header-row .tag { padding: 2px 6px; border-radius: 6px; font-size: 11px; }
+  .tag.day { background: #fff3cd; color: #856404; }
+  .tag.night { background: #d6e4ff; color: #1a3d8f; }
+  .target-inputs { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: #555; }
+  .target-inputs input { width: 44px; padding: 3px 4px; font-size: 12px; }
+  .target-inputs button { padding: 3px 8px; font-size: 11px; border-radius: 5px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
+  .current-line { font-size: 12px; color: #666; margin-bottom: 6px; }
+  .numbered-list { font-size: 13px; line-height: 1.7; margin-bottom: 4px; }
+  .numbered-list .gender-label { font-weight: 700; color: #999; margin: 4px 0 2px; font-size: 12px; }
+  .numbered-item { display: flex; justify-content: space-between; align-items: center; }
+  .numbered-item .x { cursor: pointer; color: #c0392b; font-weight: 700; padding: 0 4px; font-size: 12px; }
+  .edu-badge { color: #2f6fed; font-weight: 700; }
+  .new-badge { color: #b35c00; font-weight: 700; }
+  .wage-badge { color: #c0392b; font-weight: 700; }
+  .edit-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 999; padding: 16px; }
+  .edit-overlay-card { background: white; border-radius: 14px; padding: 18px; max-width: 480px; width: 100%; max-height: 85vh; overflow-y: auto; }
+  .edit-overlay-title { font-weight: 700; font-size: 16px; margin-bottom: 10px; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .unassigned-chip { display: flex; align-items: center; gap: 3px; background: #f4f5f7; border-radius: 8px; padding: 4px 6px; font-size: 11px; flex-wrap: wrap; }
+  .unassigned-chip select { width: auto; padding: 3px; font-size: 11px; border-radius: 5px; }
+  .unassigned-chip label { display: flex; align-items: center; gap: 2px; font-size: 10px; margin: 0; font-weight: 400; }
+  .unassigned-chip input[type=checkbox] { width: auto; }
+  .unassigned-chip button { padding: 3px 8px; font-size: 11px; border-radius: 5px; border: none; background: #2f6fed; color: white; cursor: pointer; }
+  .text-preview-wrap { margin-top: 8px; }
+  .text-preview-wrap textarea { width: 100%; min-height: 140px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; background: #fffef0; resize: vertical; }
+  .text-preview-wrap button { margin-top: 4px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; background: white; cursor: pointer; }
+  .copy-msg { font-size: 11px; color: #1a7a34; margin-left: 6px; }
+  .loc-badge { display: inline-block; background: #eef1ff; color: #3949ab; font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 700; vertical-align: middle; }
+  .unassigned-chip input.batch-select { width: 16px; height: 16px; margin-right: 2px; }
+  .batch-row { display: flex; gap: 6px; margin-top: 4px; margin-bottom: 6px; }
+  .batch-all-btn { padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
+  .batch-all-btn.primary-batch { background: #2f6fed; color: white; border-color: #2f6fed; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📋 근무 신청 시스템</h1>
+  <div class="sub">이번 주 월요일부터 2주간의 근무를 미리 신청할 수 있어요.</div>
+
+  <div class="tabs">
+    <div class="tab active" id="tabWorker" onclick="switchTab('worker')">신청 / 수정</div>
+    <div class="tab" id="tabAdmin" onclick="switchTab('admin')">관리자 보기</div>
+  </div>
+
+  <div id="workerView">
+    <div class="card" id="identityCard">
+      <div style="font-weight:700;">본인 확인</div>
+      <div class="sub">이름과 생년월일 앞 6자리(비밀번호 역할)로 기존 신청을 불러오거나 새로 신청하세요.</div>
+      <label>이름</label>
+      <input type="text" id="name" placeholder="홍길동">
+      <label>생년월일 6자리</label>
+      <input type="password" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
+      <label>연락처 (신규 신청 시 필요)</label>
+      <input type="tel" id="phone" placeholder="010-0000-0000">
+      <label>성별</label>
+      <div id="genderRadios" class="location-checkboxes"></div>
+      <label>근무 장소 (해당되는 곳 한 곳만 선택)</label>
+      <div id="locationCheckboxes" class="location-checkboxes"></div>
+      <label>관리자에게 하고 싶은 말 (선택)</label>
+      <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
+      <textarea id="messageBox" rows="4" placeholder="예: 월화수목금토일 신청합니다.&#10;예:주간_월화수목금/야간_화수목금 신청합니다.&#10;예;월화수목금_신세계푸드/토일_BGF 신청합니다" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+      <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
+      <div id="lookupMsg"></div>
+    </div>
+
+    <div id="calendarSection">
+      <div class="card">
+        <div id="modeMsg"></div>
+        <div id="dateListContainer"></div>
+      </div>
+      <button class="primary" id="submitBtn" onclick="submitApplication()">저장하기</button>
+      <button class="danger" id="cancelBtn" onclick="cancelApplication()" style="display:none;">신청 전체 취소</button>
+      <button class="secondary" onclick="resetIdentity()">다른 사람으로 조회 / 처음으로</button>
+      <div id="resultMsg"></div>
+    </div>
+  </div>
+
+  <div id="adminView" style="display:none;">
+    <div id="adminLoginCard" class="card">
+      <div style="font-weight:700; margin-bottom:8px;">관리자 비밀번호</div>
+      <input type="password" id="adminPw" placeholder="비밀번호 입력">
+      <button class="primary" onclick="checkAdminPw()">확인</button>
+      <div id="adminPwMsg"></div>
+    </div>
+    <div id="adminMainArea" style="display:none;">
+      <div class="location-tabs" style="margin-bottom:10px;">
+        <div class="location-tab" id="subtabBoard" onclick="switchAdminSubView('board')">📋 배치판 보기</div>
+        <div class="location-tab" id="subtabRoster" onclick="switchAdminSubView('roster')">👥 전체신청자 목록</div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+        <button class="primary" style="width:auto; padding:6px 14px; margin-top:0;" onclick="saveAllOnScreen()">💾 전체 저장</button>
+        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
+        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="refreshAdminSubView()">🔄 새로고침</button>
+      </div>
+      <div id="saveAllMsg" style="text-align:right; margin-bottom:8px;"></div>
+
+      <div id="adminBoardArea">
+        <div id="adminContent"><div class="empty">불러오는 중...</div></div>
+      </div>
+
+      <div id="adminRosterArea" style="display:none;">
+        <div class="card" id="smsPanel">
+          <div style="font-weight:700; margin-bottom:6px;">선택한 사람에게 문자 보내기</div>
+          <textarea id="smsMessage" rows="3" placeholder="보낼 메시지를 입력하세요" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+          <button class="primary" onclick="sendBulkSms()">📱 선택 인원 문자 앱 열기</button>
+          <div id="smsMsg" class="copy-msg"></div>
+        </div>
+        <div id="rosterContent"><div class="empty">불러오는 중...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pastHistoryOverlay" class="edit-overlay" style="display:none;">
+    <div class="edit-overlay-card">
+      <div class="edit-overlay-title" id="pastHistoryTitle">과거 이력 입력</div>
+      <div class="period-caption">시스템 도입 이전 월별 근로일수를 직접 입력하세요. 이번 달부터는 배치판에서 자동으로 기록됩니다.</div>
+      <div id="pastHistoryList" style="margin-bottom:12px;"></div>
+      <label>년-월</label>
+      <input type="month" id="newPmYearMonth">
+      <label>근로일수</label>
+      <input type="number" id="newPmDays" min="0" max="31" placeholder="예: 15">
+      <button class="secondary" onclick="addPastHistoryEntry()">+ 추가</button>
+      <div id="pastHistoryMsg"></div>
+      <button class="primary" onclick="closePastHistoryOverlay()">닫기</button>
+    </div>
+  </div>
+
+  <div id="adminAddOverlay" class="edit-overlay" style="display:none;">
+    <div class="edit-overlay-card">
+      <div class="edit-overlay-title">근무자 추가 (신청 누락자 등록)</div>
+      <div class="period-caption">기존 근무자 이름을 입력하면 인적사항이 자동으로 채워집니다.</div>
+      <label>이름</label>
+      <input type="text" id="adminAddName" list="adminAddNameList" placeholder="홍길동">
+      <datalist id="adminAddNameList"></datalist>
+      <label>생년월일 6자리</label>
+      <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
+      <label>연락처</label>
+      <input type="tel" id="adminAddPhone" placeholder="010-0000-0000">
+      <label>성별</label>
+      <div id="adminAddGenderRadios" class="location-checkboxes"></div>
+      <label>근무 장소</label>
+      <div id="adminAddLocationRadios" class="location-checkboxes"></div>
+      <label>근무 일정</label>
+      <div id="adminAddDateList"></div>
+      <button class="secondary" id="adminAddStageBtn" onclick="stageAdminAddRecord()">+ 목록에 추가</button>
+      <div id="adminAddMsg"></div>
+
+      <div id="adminAddPendingWrap" style="margin-top:14px; display:none;">
+        <div style="font-weight:700; font-size:13px; margin-bottom:6px;">등록 대기 목록</div>
+        <div id="adminAddPendingList"></div>
+        <button class="primary" id="adminAddSubmitAllBtn" onclick="submitAllAdminAddRecords()">전체 등록 (0명)</button>
+      </div>
+
+      <button class="secondary" onclick="closeAdminAddOverlay()" style="margin-top:8px;">닫기</button>
+    </div>
+  </div>
+
+  <div id="adminEditOverlay" class="edit-overlay" style="display:none;">
+    <div class="edit-overlay-card">
+      <div class="edit-overlay-title" id="adminEditTitle">일정 수정</div>
+      <label>연락처</label>
+      <input type="tel" id="adminEditPhone" placeholder="010-0000-0000">
+      <label>생년월일 6자리 (비어있으면 나중에 채워도 됩니다)</label>
+      <input type="text" id="adminEditPin" maxlength="6" inputmode="numeric" placeholder="900101">
+      <div id="adminEditDateList"></div>
+      <button class="primary" onclick="saveAdminShiftsEdit()">저장</button>
+      <button class="secondary" onclick="closeAdminEditOverlay()">취소</button>
+      <div id="adminEditMsg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DAY_NAMES = ['일','월','화','수','목','금','토'];
+
+// google.script.run 호출을 Promise로 감싸서 여러 개를 동시에 실행할 수 있게 함
+function runScript(fnName, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      [fnName](...args);
+  });
+}
+
+// 마우스로 잡고 드래그해서 가로 스크롤하는 기능
+function enableDragScroll(el) {
+  if (el.dataset.dragEnabled) return;
+  el.dataset.dragEnabled = '1';
+  let isDown = false, startX = 0, startScroll = 0;
+  el.style.cursor = 'grab';
+  el.addEventListener('mousedown', (e) => {
+    isDown = true;
+    el.style.cursor = 'grabbing';
+    startX = e.pageX;
+    startScroll = el.scrollLeft;
+  });
+  window.addEventListener('mouseup', () => { isDown = false; el.style.cursor = 'grab'; });
+  el.addEventListener('mouseleave', () => { isDown = false; el.style.cursor = 'grab'; });
+  el.addEventListener('mousemove', (e) => {
+    if (!isDown) return;
+    e.preventDefault();
+    el.scrollLeft = startScroll - (e.pageX - startX);
+  });
+}
+
+// 가로로 넘치는 표(.table-wrap, .side-by-side-wrap)마다 좌우 화살표 버튼 + 드래그 스크롤을 자동으로 붙여줌
+function addScrollArrows(containerEl) {
+  const targets = containerEl.querySelectorAll('.table-wrap, .side-by-side-wrap');
+  targets.forEach(el => {
+    enableDragScroll(el);
+    if (el.scrollWidth <= el.clientWidth + 4) return; // 넘칠 때만 화살표 추가
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'scroll-arrow-wrap';
+    el.parentNode.insertBefore(wrapper, el);
+    wrapper.appendChild(el);
+
+    const leftBtn = document.createElement('div');
+    leftBtn.className = 'scroll-arrow scroll-arrow-left';
+    leftBtn.textContent = '◀';
+    leftBtn.onclick = () => el.scrollBy({ left: -Math.round(el.clientWidth * 0.8), behavior: 'smooth' });
+
+    const rightBtn = document.createElement('div');
+    rightBtn.className = 'scroll-arrow scroll-arrow-right';
+    rightBtn.textContent = '▶';
+    rightBtn.onclick = () => el.scrollBy({ left: Math.round(el.clientWidth * 0.8), behavior: 'smooth' });
+
+    wrapper.appendChild(leftBtn);
+    wrapper.appendChild(rightBtn);
+  });
+}
+const FLOORS = ['1층','2층','3층','입출하','미화','날인실','기타'];
+const LOCATIONS = ['신세계푸드 원남','델몬트_원남','BGF푸드_진천','물류우리와_금왕','포장우리와_금왕','주방보조_전국','기타'];
+let selections = {};
+let currentName = '', currentPin = '';
+let isEditMode = false;
+let lastRecords = [], lastAssignments = [], lastTargets = [];
+let currentLocationFilter = '전체';
+let adminAuthenticated = false;
+let adminPassword = ''; // 관리자 전용 서버 함수 호출 시 매번 함께 보내 서버에서 재검증
+
+function formatDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function shortDate(dateStr) {
+  const d = new Date(dateStr);
+  return (d.getMonth()+1) + '/' + d.getDate() + '(' + DAY_NAMES[d.getDay()] + ')';
+}
+function floorSuffix(floor) {
+  return ['1층','2층','3층'].indexOf(floor) > -1 ? floor.replace('층','') : floor;
+}
+function floorRank(floor) {
+  const idx = FLOORS.indexOf(floor);
+  return idx === -1 ? 999 : idx;
+}
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList) {
+  const lines = [];
+  lines.push(shortDate(dateStr) + ' ' + shiftLabel);
+  lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
+  lines.push('');
+  if (maleList.length === 0) lines.push('(남 배치 없음)');
+  maleList.forEach((a, idx) => {
+    const edu = a.isEducation ? '■교육' : '';
+    const nw = a.isNew ? ' (신)●' : '';
+    const ww = a.isWomenWage ? ' ••여임금' : '';
+    lines.push(`남${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
+  });
+  lines.push('');
+  if (femaleList.length === 0) lines.push('(여 배치 없음)');
+  femaleList.forEach((a, idx) => {
+    const edu = a.isEducation ? '■교육' : '';
+    const nw = a.isNew ? ' (신)●' : '';
+    const ww = a.isWomenWage ? ' ••여임금' : '';
+    lines.push(`여${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
+  });
+  return lines.join('\n');
+}
+
+function copyTextArea(id, msgId) {
+  const el = document.getElementById(id);
+  el.select();
+  el.setSelectionRange(0, 999999);
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(el.value);
+      copied = true;
+    }
+  } catch (e) {}
+  if (!copied) {
+    try { document.execCommand('copy'); copied = true; } catch (e) {}
+  }
+  const msgEl = document.getElementById(msgId);
+  if (msgEl) {
+    msgEl.textContent = copied ? '복사됨 ✓' : '복사 실패 - 직접 선택 후 복사해주세요';
+    setTimeout(() => { msgEl.textContent = ''; }, 2000);
+  }
+}
+
+function getTwoWeekDates() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const day = today.getDay(); // 0=일 ... 6=토
+  const diffToMonday = (day === 0) ? 6 : (day - 1); // 이번 주 월요일까지 며칠 되돌아가야 하는지
+  const start = new Date(today); start.setDate(today.getDate() - diffToMonday);
+  const dates = [];
+  for (let i = 0; i < 14; i++) { const d = new Date(start); d.setDate(start.getDate() + i); dates.push(d); }
+  return dates;
+}
+
+function renderLocationCheckboxes(selectedLocations) {
+  const container = document.getElementById('locationCheckboxes');
+  container.innerHTML = LOCATIONS.map(loc => {
+    const checked = (selectedLocations || []).indexOf(loc) > -1 ? 'checked' : '';
+    const id = 'loc_' + loc.replace(/[^a-zA-Z0-9가-힣]/g, '_');
+    return `<label><input type="radio" name="workLocation" id="${id}" value="${loc}" ${checked}>${loc}</label>`;
+  }).join('');
+}
+function getSelectedLocations() {
+  const checked = document.querySelector('input[name="workLocation"]:checked');
+  return checked ? [checked.value] : [];
+}
+
+function renderGenderRadios(selectedGender) {
+  const container = document.getElementById('genderRadios');
+  container.innerHTML = ['남','여'].map(g => {
+    const checked = (g === selectedGender) ? 'checked' : '';
+    return `<label><input type="radio" name="workerGender" id="gender_${g}" value="${g}" ${checked}>${g}</label>`;
+  }).join('');
+}
+function getSelectedGender() {
+  const checked = document.querySelector('input[name="workerGender"]:checked');
+  return checked ? checked.value : '';
+}
+
+// ---------- 근로자 신청 화면 ----------
+function buildDateList(prefill) {
+  const container = document.getElementById('dateListContainer');
+  container.innerHTML = '';
+  selections = {};
+  const dates = getTwoWeekDates();
+  dates.forEach((d, idx) => {
+    if (idx === 0 || idx === 7) {
+      const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
+      const t = document.createElement('div');
+      t.className = 'week-title';
+      t.textContent = (idx===0?'1주차':'2주차') + ` (${ws.getMonth()+1}/${ws.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
+      container.appendChild(t);
+    }
+    const key = formatDate(d);
+    const dow = DAY_NAMES[d.getDay()];
+    selections[key] = { day: false, night: false };
+    if (prefill) {
+      const found = prefill.find(s => s.date === key);
+      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; }
+    }
+    const row = document.createElement('div');
+    row.className = 'date-row';
+    const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    row.innerHTML = `
+      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
+      <div class="shift-btns">
+        <div class="shift-btn ${selections[key].day?'selected':''}" id="day-${key}" onclick="toggleShift('${key}','day')">주간</div>
+        <div class="shift-btn ${selections[key].night?'selected':''}" id="night-${key}" onclick="toggleShift('${key}','night')">야간</div>
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+function toggleShift(key, type) {
+  selections[key][type] = !selections[key][type];
+  document.getElementById(type+'-'+key).classList.toggle('selected', selections[key][type]);
+}
+
+function lookupRecord() {
+  const name = document.getElementById('name').value.trim();
+  const pin = document.getElementById('pin').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const msgEl = document.getElementById('lookupMsg');
+
+  msgEl.innerHTML = '';
+  if (!name || !/^[0-9]{6}$/.test(pin)) {
+    msgEl.innerHTML = '<div class="msg err">이름과 생년월일 6자리를 정확히 입력해주세요.</div>';
+    return;
+  }
+
+  currentName = name; currentPin = pin;
+  console.log("이름: %s, 생년월일: %s", currentName, currentPin);
+
+  document.getElementById('lookupBtn').disabled = true;
+  google.script.run
+    .withSuccessHandler(function(existing) {
+      document.getElementById('lookupBtn').disabled = false;
+      document.getElementById('name').disabled = true;
+      document.getElementById('pin').disabled = true;
+      document.getElementById('calendarSection').style.display = 'block';
+      if (existing) {
+        isEditMode = true;
+        document.getElementById('phone').value = existing.phone || '';
+        document.getElementById('phone').disabled = true;
+        renderGenderRadios(existing.gender);
+        renderLocationCheckboxes(existing.locations);
+        document.getElementById('messageBox').value = existing.message || '';
+        buildDateList(existing.shifts);
+        document.getElementById('modeMsg').innerHTML = '<div class="msg info">기존 신청 내역을 불러왔습니다.</div>';
+        document.getElementById('cancelBtn').style.display = 'block';
+      } else {
+        isEditMode = false;
+        if (!phone) {
+          msgEl.innerHTML = '<div class="msg err">신규 신청은 연락처가 필요합니다.</div>';
+          document.getElementById('name').disabled = false;
+          document.getElementById('pin').disabled = false;
+          document.getElementById('calendarSection').style.display = 'none';
+          return;
+        }
+        renderGenderRadios('');
+        renderLocationCheckboxes([]);
+        document.getElementById('messageBox').value = '';
+        buildDateList(null);
+        document.getElementById('modeMsg').innerHTML = '<div class="msg info">근무신청하는 날짜의 (주간/야간)을 눌러서 체크해 주세요. 신청하지 않는 날짜는 그냥 비워두시면 됩니다</div>';
+        document.getElementById('cancelBtn').style.display = 'none';
+      }
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('lookupBtn').disabled = false;
+      msgEl.innerHTML = '<div class="msg err">조회 중 오류: ' + err.message + '</div>';
+    })
+    .lookupRecord(name, pin);
+}
+
+function submitApplication() {
+  const phone = document.getElementById('phone').value.trim();
+  const resultMsg = document.getElementById('resultMsg');
+  resultMsg.innerHTML = '';
+  const chosen = Object.entries(selections).filter(([k,v]) => v.day || v.night).map(([k,v]) => ({date:k, day:v.day, night:v.night}));
+  if (chosen.length === 0) {
+    resultMsg.innerHTML = '<div class="msg err">최소 하나의 날짜/시간대를 선택해주세요.</div>';
+    return;
+  }
+  const gender = getSelectedGender();
+  if (!gender) {
+    resultMsg.innerHTML = '<div class="msg err">성별을 선택해주세요.</div>';
+    return;
+  }
+  const locations = getSelectedLocations();
+  if (locations.length === 0) {
+    resultMsg.innerHTML = '<div class="msg err">근무 장소를 최소 하나 선택해주세요.</div>';
+    return;
+  }
+  const message = document.getElementById('messageBox').value.trim();
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '저장 중...';
+  google.script.run
+    .withSuccessHandler(function() {
+      btn.disabled = false; btn.textContent = '저장하기';
+      resultMsg.innerHTML = '<div class="msg ok">✅ ' + (isEditMode?'수정':'신청') + ' 완료되었습니다.</div>';
+      isEditMode = true;
+      document.getElementById('cancelBtn').style.display = 'block';
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false; btn.textContent = '저장하기';
+      resultMsg.innerHTML = '<div class="msg err">오류: ' + err.message + '</div>';
+    })
+    .saveRecord(currentName, currentPin, phone, chosen, locations, message, gender);
+}
+
+function cancelApplication() {
+  const resultMsg = document.getElementById('resultMsg');
+  google.script.run
+    .withSuccessHandler(function() {
+      resultMsg.innerHTML = '<div class="msg ok">신청이 전체 취소되었습니다.</div>';
+      resetIdentity();
+    })
+    .withFailureHandler(function(err) {
+      resultMsg.innerHTML = '<div class="msg err">취소 중 오류: ' + err.message + '</div>';
+    })
+    .deleteRecord(currentName, currentPin);
+}
+
+function resetIdentity() {
+  document.getElementById('name').value = ''; document.getElementById('name').disabled = false;
+  document.getElementById('pin').value = ''; document.getElementById('pin').disabled = false;
+  document.getElementById('phone').value = ''; document.getElementById('phone').disabled = false;
+  renderGenderRadios('');
+  renderLocationCheckboxes([]);
+  document.getElementById('messageBox').value = '';
+  document.getElementById('calendarSection').style.display = 'none';
+  document.getElementById('lookupMsg').innerHTML = '';
+  document.getElementById('resultMsg').innerHTML = '';
+  currentName = ''; currentPin = ''; isEditMode = false;
+}
+
+let adminSubView = 'board';
+
+function switchTab(tab) {
+  document.getElementById('tabWorker').classList.toggle('active', tab==='worker');
+  document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
+  document.getElementById('workerView').style.display = tab==='worker' ? 'block' : 'none';
+  document.getElementById('adminView').style.display = tab==='admin' ? 'block' : 'none';
+  if (tab === 'admin') {
+    if (adminAuthenticated) {
+      document.getElementById('adminLoginCard').style.display = 'none';
+      document.getElementById('adminMainArea').style.display = 'block';
+      switchAdminSubView(adminSubView);
+    } else {
+      document.getElementById('adminLoginCard').style.display = 'block';
+      document.getElementById('adminMainArea').style.display = 'none';
+    }
+  }
+}
+
+function switchAdminSubView(view) {
+  adminSubView = view;
+  document.getElementById('subtabBoard').classList.toggle('active', view==='board');
+  document.getElementById('subtabRoster').classList.toggle('active', view==='roster');
+  document.getElementById('adminBoardArea').style.display = view==='board' ? 'block' : 'none';
+  document.getElementById('adminRosterArea').style.display = view==='roster' ? 'block' : 'none';
+  if (view === 'board') loadAdmin();
+  else loadRoster();
+}
+
+function refreshAdminSubView() {
+  switchAdminSubView(adminSubView);
+}
+
+function checkAdminPw() {
+  const pw = document.getElementById('adminPw').value;
+  const msgEl = document.getElementById('adminPwMsg');
+  msgEl.innerHTML = '';
+  google.script.run
+    .withSuccessHandler(function(ok) {
+      if (ok) {
+        adminAuthenticated = true;
+        adminPassword = pw;
+        document.getElementById('adminLoginCard').style.display = 'none';
+        document.getElementById('adminMainArea').style.display = 'block';
+        switchAdminSubView('board');
+      } else {
+        msgEl.innerHTML = '<div class="msg err">비밀번호가 올바르지 않습니다.</div>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      msgEl.innerHTML = '<div class="msg err">오류: ' + err.message + '</div>';
+    })
+    .checkAdminPassword(pw);
+}
+
+// ---------- 관리자 화면 ----------
+const WEEKDAY_LABELS = ['월','화','수','목','금','토','일'];
+
+function renderFloorMark(char, floor) {
+  if (floor === '1층') return `<span class="mark-circle">${char}</span>`;
+  if (floor === '2층') return `<span class="mark-triangle-wrap"><span class="mark-triangle"></span><span class="mark-char">${char}</span></span>`;
+  if (floor === '3층') return `<span class="mark-square">${char}</span>`;
+  if (floor) return `${char}<div class="mark-label">${floor}</div>`;
+  return char;
+}
+
+function closeFloorMenu() {
+  const m = document.getElementById('floorMenuPopup');
+  if (m) m.remove();
+}
+
+function showFloorMenu(evt, dateStr, shiftKey, key) {
+  evt.stopPropagation();
+  closeFloorMenu();
+  const menu = document.createElement('div');
+  menu.id = 'floorMenuPopup';
+  menu.style.cssText = 'position:fixed; background:white; border:1px solid #ccc; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.2); z-index:2000; padding:6px; display:flex; flex-direction:column; gap:2px; max-height:260px; overflow-y:auto;';
+  const rect = evt.currentTarget.getBoundingClientRect();
+  let top = rect.bottom + 4;
+  let left = rect.left;
+  if (left + 110 > window.innerWidth) left = window.innerWidth - 116;
+  if (top + 260 > window.innerHeight) top = Math.max(4, rect.top - 264);
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  FLOORS.forEach(f => {
+    const btn = document.createElement('button');
+    btn.textContent = f;
+    btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fafafa; border-radius:6px; cursor:pointer; text-align:left;';
+    btn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, f); };
+    menu.appendChild(btn);
+  });
+  const clearBtn = document.createElement('button');
+  clearBtn.textContent = '지우기';
+  clearBtn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fdecea; color:#c0392b; border-radius:6px; cursor:pointer; text-align:left;';
+  clearBtn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, ''); };
+  menu.appendChild(clearBtn);
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', closeFloorMenu, { once: true }), 0);
+}
+
+function setCellFloor(dateStr, shiftKey, key, floor) {
+  const rec = lastRecords.find(r => r.key === key);
+  const gender = (rec && (rec.adminGender || rec.gender)) || '남';
+  const name = rec ? rec.name : '';
+  const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+  const isEducation = existing ? existing.isEducation : false;
+  const isNew = existing ? existing.isNew : false;
+  const isWomenWage = existing ? existing.isWomenWage : false;
+  google.script.run
+    .withSuccessHandler(function() { closeFloorMenu(); loadAdmin(); })
+    .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
+    .saveAssignment(dateStr, shiftKey, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
+}
+
+function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, locationLabel, compact, assignments) {
+  const weekDatesStr = weekDates.map(formatDate);
+  const weekSet = new Set(weekDatesStr);
+  const headerLabels = weekDates.map((d, i) => `${d.getMonth()+1}/${d.getDate()}${WEEKDAY_LABELS[i]}`);
+
+  const relevant = records.filter(rec => (rec.shifts || []).some(s => weekSet.has(s.date) && s[shiftKey]));
+
+  const withMeta = relevant.map(rec => ({
+    key: rec.key, name: rec.name,
+    gender: rec.adminGender || rec.gender || '',
+    sortOrder: rec.sortOrder || 0,
+    shifts: rec.shifts || []
+  }));
+
+  const male = withMeta.filter(r => r.gender === '남').sort((a,b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name,'ko'));
+  const female = withMeta.filter(r => r.gender === '여').sort((a,b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name,'ko'));
+  const etc = withMeta.filter(r => r.gender !== '남' && r.gender !== '여');
+
+  const tableClass = compact ? 'week-table compact' : 'week-table';
+  let html = '';
+  if (!compact) {
+    const wStart = shortDate(weekDatesStr[0]), wEnd = shortDate(weekDatesStr[6]);
+    html += `<div class="admin-section-title">${wStart} ~ ${wEnd} · ${locationLabel} · ${shiftLabel}</div>`;
+  } else {
+    html += `<div class="shift-table-label">${shiftLabel}</div>`;
+  }
+  html += `<div class="table-wrap"><table class="${tableClass}"><tr><th class="rowhead">이름</th>`;
+  headerLabels.forEach(w => html += `<th>${w}</th>`);
+  html += '</tr>';
+
+  if (male.length === 0 && female.length === 0 && etc.length === 0) {
+    html += `<tr><td class="rowhead">-</td>${WEEKDAY_LABELS.map(()=>'<td>-</td>').join('')}</tr>`;
+  }
+
+  function renderRow(r, groupList) {
+    let nameCell;
+    if (r.gender === '남' || r.gender === '여') {
+      const posInGroup = groupList.findIndex(x => x.key === r.key);
+      const upKey = posInGroup > 0 ? groupList[posInGroup-1].key : null;
+      const downKey = posInGroup < groupList.length-1 ? groupList[posInGroup+1].key : null;
+      const upBtn = upKey ? `<span class="reorder-btn" onclick="reorderWorker('${r.key}','${upKey}')">▲</span>` : '';
+      const downBtn = downKey ? `<span class="reorder-btn" onclick="reorderWorker('${r.key}','${downKey}')">▼</span>` : '';
+      nameCell = `${r.name}<span class="reorder-btns">${upBtn}${downBtn}</span>`;
+    } else {
+      const selId = 'gfix_' + shiftKey + '_' + weekDatesStr[0] + '_' + r.key;
+      nameCell = `${r.name} <span style="color:#c0392b; font-size:10px;">(미지정)</span>
+        <select id="${selId}" style="font-size:10px; padding:1px; margin-left:2px;"><option value="">-</option><option value="남">남</option><option value="여">여</option></select>
+        <button style="font-size:9px; padding:1px 4px; border-radius:4px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminGender('${r.key}','${selId}')">저장</button>`;
+    }
+    let rowHtml = `<tr><td class="rowhead">${nameCell}</td>`;
+    weekDatesStr.forEach((dateStr, i) => {
+      const found = r.shifts.find(s => s.date === dateStr && s[shiftKey]);
+      if (!found) {
+        rowHtml += '<td>-</td>';
+        return;
+      }
+      const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
+      const floor = asg ? asg.floor : '';
+      rowHtml += `<td class="floor-clickable" onclick="showFloorMenu(event,'${dateStr}','${shiftKey}','${r.key}')">${renderFloorMark(WEEKDAY_LABELS[i], floor)}</td>`;
+    });
+    rowHtml += '</tr>';
+    return rowHtml;
+  }
+
+  function countForDate(list, dateStr) {
+    return list.filter(r => r.shifts.some(s => s.date === dateStr && s[shiftKey])).length;
+  }
+
+  function totalRow(list, genderPrefix) {
+    let t = '<tr class="gender-divider"><td class="rowhead">합계</td>';
+    weekDatesStr.forEach(dateStr => { t += `<td>${genderPrefix}${countForDate(list, dateStr)}명</td>`; });
+    t += '</tr>';
+    return t;
+  }
+
+  male.forEach(r => html += renderRow(r, male));
+  if (male.length > 0) html += totalRow(male, '남');
+  female.forEach(r => html += renderRow(r, female));
+  if (female.length > 0) html += totalRow(female, '여');
+  etc.forEach(r => html += renderRow(r, etc));
+
+  html += '</table></div>';
+  return html;
+}
+
+function saveAllOnScreen() {
+  const msgEl = document.getElementById('saveAllMsg');
+  msgEl.textContent = '저장 중...';
+
+  // data-original과 다른(=관리자가 실제로 건드린) 항목만 모은다. gender-batch-select(성별 미지정자 패널)는
+  // data-original이 없어 기본값이 빈 문자열이므로 값을 채운 경우에만 자연히 포함된다.
+  const genderMap = {};
+  document.querySelectorAll('.gender-batch-select, .global-gender-select').forEach(sel => {
+    if (sel.value && sel.value !== sel.dataset.original) genderMap[sel.dataset.key] = sel.value;
+  });
+  const genderList = Object.entries(genderMap).map(([key, gender]) => ({ key, gender }));
+
+  const locationMap = {};
+  document.querySelectorAll('.global-location-select').forEach(sel => {
+    if (sel.value && sel.value !== sel.dataset.original) locationMap[sel.dataset.key] = sel.value;
+  });
+  const locationList = Object.entries(locationMap).map(([key, location]) => ({ key, location }));
+
+  // 목표인원(남/여)은 항상 두 값을 함께 저장해야 하므로, 둘 중 하나라도 바뀐 날짜/시간대만 골라내되
+  // 저장할 때는 안 바뀐 값도 현재 화면 값 그대로 함께 보낸다(부분 저장이 없어 보내지 않으면 0으로 덮어써짐).
+  const targetMap = {};
+  const dirtyTargetKeys = new Set();
+  document.querySelectorAll('.global-target-male, .global-target-female').forEach(inp => {
+    const k = inp.dataset.date + '_' + inp.dataset.shift;
+    if (!targetMap[k]) targetMap[k] = { date: inp.dataset.date, shift: inp.dataset.shift, maleTarget: 0, femaleTarget: 0 };
+    if (inp.classList.contains('global-target-male')) targetMap[k].maleTarget = inp.value;
+    else targetMap[k].femaleTarget = inp.value;
+    if (inp.value !== inp.dataset.original) dirtyTargetKeys.add(k);
+  });
+  const targetList = Object.entries(targetMap).filter(([k]) => dirtyTargetKeys.has(k)).map(([, v]) => v);
+
+  // 보건증만료일/입사일도 마찬가지로 한쪽이라도 바뀐 사람만 골라내되 두 값을 함께 보낸다.
+  const rosterMap = {};
+  const dirtyRosterKeys = new Set();
+  document.querySelectorAll('.global-health-input, .global-hire-input').forEach(inp => {
+    const key = inp.dataset.key;
+    if (!rosterMap[key]) rosterMap[key] = { key, healthCertExpiry: '', hireDate: '' };
+    if (inp.classList.contains('global-health-input')) rosterMap[key].healthCertExpiry = inp.value;
+    else rosterMap[key].hireDate = inp.value;
+    if (inp.value !== inp.dataset.original) dirtyRosterKeys.add(key);
+  });
+  const rosterList = Object.entries(rosterMap).filter(([k]) => dirtyRosterKeys.has(k)).map(([, v]) => v);
+
+  const tasks = [];
+  if (genderList.length > 0) tasks.push({ fn: 'batchSetGender', arg: genderList });
+  if (locationList.length > 0) tasks.push({ fn: 'batchSetLocations', arg: locationList });
+  if (targetList.length > 0) tasks.push({ fn: 'batchSaveTargets', arg: targetList });
+  if (rosterList.length > 0) tasks.push({ fn: 'batchSaveRoster', arg: rosterList });
+
+  if (tasks.length === 0) {
+    msgEl.textContent = '저장할 변경사항이 없습니다.';
+    setTimeout(() => { msgEl.textContent = ''; }, 2500);
+    return;
+  }
+
+  function runNext(idx) {
+    if (idx >= tasks.length) {
+      msgEl.textContent = '✅ 전체 저장 완료';
+      setTimeout(() => { msgEl.textContent = ''; }, 2500);
+      if (adminSubView === 'roster') loadRoster(); else loadAdmin();
+      return;
+    }
+    const task = tasks[idx];
+    google.script.run
+      .withSuccessHandler(function() { runNext(idx + 1); })
+      .withFailureHandler(function(err) { msgEl.innerHTML = '<span style="color:#c0392b;">저장 오류: ' + err.message + '</span>'; })
+      [task.fn](task.arg, adminPassword);
+  }
+  runNext(0);
+}
+
+function buildGenderFixPanel(records) {
+  const missing = records.filter(rec => !(rec.adminGender || rec.gender));
+  if (missing.length === 0) return '';
+  let html = '<div class="card" id="genderFixPanel">';
+  html += '<div style="font-weight:700; margin-bottom:8px;">⚠ 성별 미지정자 일괄 지정</div>';
+  missing.forEach(rec => {
+    const selId = 'gbatch_' + rec.key;
+    html += `<div class="unassigned-chip" style="margin-bottom:6px;">
+      <span>${rec.name}</span>
+      <select id="${selId}" data-key="${rec.key}" class="gender-batch-select">
+        <option value="">-</option><option value="남">남</option><option value="여">여</option>
+      </select>
+    </div>`;
+  });
+  html += '<button class="primary" onclick="saveBatchGender()">일괄저장</button>';
+  html += '<div id="genderBatchMsg"></div>';
+  html += '</div>';
+  return html;
+}
+
+function saveBatchGender() {
+  const selects = document.querySelectorAll('.gender-batch-select');
+  const list = [];
+  selects.forEach(sel => {
+    if (sel.value) list.push({ key: sel.dataset.key, gender: sel.value });
+  });
+  const msgEl = document.getElementById('genderBatchMsg');
+  if (list.length === 0) {
+    msgEl.innerHTML = '<div class="msg err">지정할 성별을 하나 이상 선택해주세요.</div>';
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>'; })
+    .batchSetGender(list, adminPassword);
+}
+
+function buildWorkerWeekPair(weekDates, records, locationLabel, assignments) {
+  const wStart = shortDate(formatDate(weekDates[0])), wEnd = shortDate(formatDate(weekDates[6]));
+  let html = `<div class="admin-section-title">${wStart} ~ ${wEnd} · ${locationLabel}</div>`;
+  html += '<div class="side-by-side-wrap">';
+  html += `<div class="side-by-side-col">${buildWorkerWeekShiftTable(weekDates, 'day', '주간', records, locationLabel, true, assignments)}</div>`;
+  html += `<div class="side-by-side-col">${buildWorkerWeekShiftTable(weekDates, 'night', '야간', records, locationLabel, true, assignments)}</div>`;
+  html += '</div>';
+  return html;
+}
+
+function reorderWorker(keyA, keyB) {
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('순서 변경 오류: ' + err.message); })
+    .swapSortOrder(keyA, keyB, adminPassword);
+}
+
+function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
+  const sortByCount = (list) => [...list].sort((a,b) => (keyToTotalCount[b.key]||0) - (keyToTotalCount[a.key]||0));
+  const filterGender = (list, g) => list.filter(p => (p.gender || '') === g);
+
+  function buildOneShiftTable(shiftKey, shiftLabel, cls) {
+    let html = `<div class="shift-table-label">${label} · ${shiftLabel}</div>`;
+    html += `<div class="table-wrap"><table class="week-table"><tr><th class="rowhead">구분</th>`;
+    weekDates.forEach(d => html += `<th>${shortDate(formatDate(d))}</th>`);
+    html += '</tr>';
+    ['남', '여'].forEach(g => {
+      html += `<tr><td class="rowhead">${g}</td>`;
+      weekDates.forEach(d => {
+        const full = (byDate[formatDate(d)] && byDate[formatDate(d)][shiftKey]) || [];
+        const list = sortByCount(filterGender(full, g));
+        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>p.name).join('<br>')||'-'}</div></td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</table></div>';
+    return html;
+  }
+
+  return buildOneShiftTable('day', '주간', 'day') + buildOneShiftTable('night', '야간', 'night');
+}
+
+function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
+  const rows = records.map(rec => {
+    const cnt = (rec.shifts||[]).filter(s => weekDatesSet.has(s.date)).length;
+    const requested = (rec.locations && rec.locations[0]) || '';
+    const adminLoc = rec.adminLocation || '';
+    const genderRequested = rec.gender || '';
+    const genderEffective = rec.adminGender || genderRequested;
+    return { key: rec.key, name: rec.name, phone: rec.phone, cnt, requested, effective: adminLoc || requested, message: rec.message || '', genderEffective };
+  }).filter(r => r.cnt > 0).sort((a,b) => a.name.localeCompare(b.name, 'ko'));
+
+  let html = `<div class="admin-section-title">${label} 신청자 목록</div>`;
+  html += `<div class="period-caption">${pStart} ~ ${pEnd} · 이름 가나다순 · 배치 장소는 신청 장소와 다르게 지정할 수 있어요</div>`;
+  html += '<div class="card"><table><tr><th>이름</th><th>성별</th><th>신청일수</th><th>연락처</th><th>신청 장소</th><th>배치 장소</th><th>일정</th><th>하고 싶은 말</th></tr>';
+  if (rows.length === 0) html += '<tr><td colspan="8" style="text-align:center; color:#999;">신청자 없음</td></tr>';
+  rows.forEach(r => {
+    const selId = 'locadmin_' + r.key;
+    const genderSelId = 'genderadmin_' + r.key;
+    // select는 selected 옵션이 없으면 브라우저가 첫 옵션을 기본 선택하므로, "전체저장"이 변경 여부를 정확히 판단하려면
+    // 실제 화면에 선택될 값을 data-original로 그대로 기록해둔다.
+    const locationOriginal = LOCATIONS.indexOf(r.effective) > -1 ? r.effective : LOCATIONS[0];
+    const genderOriginal = (r.genderEffective === '남' || r.genderEffective === '여') ? r.genderEffective : '남';
+    const options = LOCATIONS.map(l => `<option value="${l}" ${l===locationOriginal?'selected':''}>${l}</option>`).join('');
+    const genderOptions = ['남','여'].map(g => `<option value="${g}" ${g===genderOriginal?'selected':''}>${g}</option>`).join('');
+    html += `<tr><td>${r.name}</td>
+      <td><select id="${genderSelId}" class="global-gender-select" data-key="${r.key}" data-original="${genderOriginal}" style="font-size:12px; padding:4px;">${genderOptions}</select>
+      <button style="margin-left:2px; font-size:11px; padding:4px 6px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminGender('${r.key}','${genderSelId}')">저장</button></td>
+      <td>${r.cnt}</td><td>${r.phone||'-'}</td><td>${r.requested||'-'}</td>
+      <td><select id="${selId}" class="global-location-select" data-key="${r.key}" data-original="${locationOriginal}" style="font-size:12px; padding:4px;">${options}</select>
+      <button style="margin-left:4px; font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminLocation('${r.key}','${selId}')">저장</button></td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openAdminEditShifts('${r.key}','${r.name}')">일정수정</button></td>
+      <td style="max-width:160px; font-size:12px; white-space:pre-wrap;">${r.message ? r.message : '-'}</td></tr>`;
+  });
+  html += '</table></div>';
+  return html;
+}
+
+function saveAdminLocation(key, selId) {
+  const val = document.getElementById(selId).value;
+  google.script.run
+    .withSuccessHandler(function() {})
+    .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
+    .setAdminLocation(key, val, adminPassword);
+}
+
+function saveAdminGender(key, selId) {
+  const val = document.getElementById(selId).value;
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('성별 저장 오류: ' + err.message); })
+    .setAdminGender(key, val, adminPassword);
+}
+
+// ---------- 전체신청자 목록 (누적 인사 정보 + 문자발송) ----------
+let lastRosterMerged = [];
+
+function loadRoster() {
+  const content = document.getElementById('rosterContent');
+  content.innerHTML = '<div class="empty">불러오는 중...</div>';
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getRosterData', adminPassword), runScript('getWorkStats', adminPassword)])
+    .then(function(results) {
+      renderRoster(results[0] || [], results[1] || [], results[2] || {});
+    })
+    .catch(function(err) {
+      content.innerHTML = '<div class="empty">불러오기 실패: ' + err.message + '</div>';
+    });
+}
+
+function formatMonthlyBreakdown(monthly) {
+  const entries = Object.entries(monthly || {}).sort((a,b) => b[0].localeCompare(a[0]));
+  if (entries.length === 0) return '-';
+  return entries.map(([ym, days]) => `${ym.slice(5,7)}월 ${days}일`).join(', ');
+}
+
+function renderRoster(records, rosterData, workStats) {
+  const content = document.getElementById('rosterContent');
+  const rosterByKey = {};
+  rosterData.forEach(r => { rosterByKey[r.key] = r; });
+
+  const merged = records.map(rec => {
+    const ro = rosterByKey[rec.key] || {};
+    const stat = workStats[rec.key] || { monthly: {}, consecutiveMonths: 0 };
+    return {
+      key: rec.key, name: rec.name, phone: rec.phone, birthDate: rec.pin || '',
+      healthCertExpiry: ro.healthCertExpiry || '', hireDate: ro.hireDate || '',
+      monthlyText: formatMonthlyBreakdown(stat.monthly), consecutiveMonths: stat.consecutiveMonths || 0
+    };
+  }).sort((a,b) => a.name.localeCompare(b.name, 'ko'));
+
+  lastRosterMerged = merged;
+
+  if (merged.length === 0) {
+    content.innerHTML = '<div class="empty">신청자가 없습니다.</div>';
+    return;
+  }
+
+  let html = '<div class="table-wrap"><table style="min-width:980px;">';
+  html += `<tr>
+    <th><input type="checkbox" onclick="toggleAllRoster(this)"></th>
+    <th>이름</th><th>생년월일(6자리)</th><th>전화번호</th><th>보건증만료일</th><th>입사일</th>
+    <th>월별근로일수 (자동+과거)</th><th>연속근로(개월)</th><th>저장</th><th>과거이력</th><th>문자</th>
+  </tr>`;
+  merged.forEach(r => {
+    html += `<tr>
+      <td><input type="checkbox" class="roster-select" data-key="${r.key}" data-phone="${r.phone||''}" data-name="${r.name}"></td>
+      <td>${r.name}</td>
+      <td style="font-size:12px;">${r.birthDate || '-'}</td>
+      <td style="font-size:12px;">${r.phone||'-'}</td>
+      <td><input type="date" id="health_${r.key}" class="global-health-input" data-key="${r.key}" data-original="${r.healthCertExpiry}" value="${r.healthCertExpiry}" style="width:130px; font-size:12px; padding:4px;"></td>
+      <td><input type="date" id="hire_${r.key}" class="global-hire-input" data-key="${r.key}" data-original="${r.hireDate}" value="${r.hireDate}" style="width:130px; font-size:12px; padding:4px;"></td>
+      <td style="font-size:12px; max-width:220px;">${r.monthlyText}</td>
+      <td style="font-size:13px; font-weight:700; text-align:center;">${r.consecutiveMonths}</td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveRosterRow('${r.key}')">저장</button></td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openPastHistoryEditor('${r.key}','${r.name}')">과거이력</button></td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="sendSingleSms('${r.phone||''}')">📱</button></td>
+    </tr>`;
+  });
+  html += '</table></div>';
+  content.innerHTML = html;
+  addScrollArrows(content);
+}
+
+function toggleAllRoster(cb) {
+  document.querySelectorAll('.roster-select').forEach(el => { el.checked = cb.checked; });
+}
+
+function saveRosterRow(key) {
+  const health = document.getElementById('health_' + key).value;
+  const hire = document.getElementById('hire_' + key).value;
+  google.script.run
+    .withSuccessHandler(function() {})
+    .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
+    .saveRosterEntry(key, health, hire, adminPassword);
+}
+
+// ---- 과거 이력(월별) 직접 입력 ----
+let pastHistoryKey = null;
+
+function openPastHistoryEditor(key, name) {
+  pastHistoryKey = key;
+  document.getElementById('pastHistoryTitle').textContent = name + '님 과거 이력 입력';
+  document.getElementById('pastHistoryMsg').innerHTML = '';
+  document.getElementById('newPmYearMonth').value = '';
+  document.getElementById('newPmDays').value = '';
+  refreshPastHistoryList();
+  document.getElementById('pastHistoryOverlay').style.display = 'flex';
+}
+
+function refreshPastHistoryList() {
+  const listEl = document.getElementById('pastHistoryList');
+  listEl.innerHTML = '불러오는 중...';
+  google.script.run
+    .withSuccessHandler(function(entries) {
+      if (!entries || entries.length === 0) {
+        listEl.innerHTML = '<div style="color:#999; font-size:13px;">입력된 과거 이력이 없습니다.</div>';
+        return;
+      }
+      entries.sort((a,b) => b.yearMonth.localeCompare(a.yearMonth));
+      let html = '';
+      entries.forEach(e => {
+        html += `<div class="assigned-item"><span>${e.yearMonth} — ${e.days}일</span><span class="x" onclick="deletePastHistoryEntry('${e.yearMonth}')">✕</span></div>`;
+      });
+      listEl.innerHTML = html;
+    })
+    .withFailureHandler(function(err) {
+      listEl.innerHTML = '불러오기 실패: ' + err.message;
+    })
+    .getPastMonthlyEntries(pastHistoryKey, adminPassword);
+}
+
+function addPastHistoryEntry() {
+  const ym = document.getElementById('newPmYearMonth').value;
+  const days = document.getElementById('newPmDays').value;
+  const msgEl = document.getElementById('pastHistoryMsg');
+  if (!ym || !days) {
+    msgEl.innerHTML = '<div class="msg err">월과 근로일수를 입력해주세요.</div>';
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function() {
+      document.getElementById('newPmYearMonth').value = '';
+      document.getElementById('newPmDays').value = '';
+      refreshPastHistoryList();
+    })
+    .withFailureHandler(function(err) {
+      msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>';
+    })
+    .savePastMonthly(pastHistoryKey, ym, days, adminPassword);
+}
+
+function deletePastHistoryEntry(ym) {
+  google.script.run
+    .withSuccessHandler(function() { refreshPastHistoryList(); })
+    .withFailureHandler(function(err) { alert('삭제 오류: ' + err.message); })
+    .deletePastMonthly(pastHistoryKey, ym, adminPassword);
+}
+
+function closePastHistoryOverlay() {
+  document.getElementById('pastHistoryOverlay').style.display = 'none';
+  pastHistoryKey = null;
+  loadRoster();
+}
+
+function sendSingleSms(phone) {
+  if (!phone) { alert('전화번호가 없습니다.'); return; }
+  const message = document.getElementById('smsMessage').value || '';
+  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  window.open(`sms:${cleanPhone}?body=${encodeURIComponent(message)}`, '_blank');
+}
+
+function sendBulkSms() {
+  const checked = document.querySelectorAll('.roster-select:checked');
+  if (checked.length === 0) { alert('문자 보낼 사람을 먼저 체크해주세요.'); return; }
+  const message = document.getElementById('smsMessage').value || '';
+  const phones = Array.from(checked).map(cb => (cb.dataset.phone || '').replace(/[^0-9]/g, '')).filter(p => p);
+  if (phones.length === 0) { alert('선택된 사람들의 전화번호가 없습니다.'); return; }
+  const msgEl = document.getElementById('smsMsg');
+
+  // 다수 번호를 콤마로 연결해 문자 앱 실행 시도 (기기/브라우저에 따라 동작이 다를 수 있음)
+  const numberList = phones.join(',');
+  window.open(`sms:${numberList}?body=${encodeURIComponent(message)}`, '_blank');
+
+  // 혹시 다중 수신자가 안 열릴 경우를 대비해 번호 목록을 클립보드에도 복사
+  try {
+    navigator.clipboard.writeText(phones.join(', '));
+    msgEl.textContent = `문자 앱을 열었습니다. (번호 ${phones.length}개도 클립보드에 복사됨 - 안 열리면 문자 앱에 직접 붙여넣어주세요)`;
+  } catch (e) {
+    msgEl.textContent = `문자 앱을 열었습니다. (대상 ${phones.length}명)`;
+  }
+  setTimeout(() => { msgEl.textContent = ''; }, 6000);
+}
+
+// ---------- 관리자용 근로자 추가 (신청 누락자 등록) ----------
+let adminAddSelections = {};
+
+let adminAddPending = [];
+
+let adminAddAutosaveKeys = {}; // 이미 자동저장된 대기목록 항목의 key 캐시 (중복 방지용)
+let adminAddAutosaveTimer = null;
+
+function openAdminAddOverlay() {
+  document.getElementById('adminAddName').value = '';
+  document.getElementById('adminAddPin').value = '';
+  document.getElementById('adminAddPhone').value = '';
+  document.getElementById('adminAddMsg').innerHTML = '';
+  adminAddPending = [];
+  adminAddAutosaveKeys = {};
+  renderAdminAddPendingList();
+
+  const datalist = document.getElementById('adminAddNameList');
+  const uniqueNames = [...new Set(lastRecords.map(r => r.name))];
+  datalist.innerHTML = uniqueNames.map(n => `<option value="${n}">`).join('');
+
+  renderAdminAddGender('');
+  renderAdminAddLocation('');
+  buildAdminAddDateList(null);
+
+  document.getElementById('adminAddOverlay').style.display = 'flex';
+
+  if (adminAddAutosaveTimer) clearInterval(adminAddAutosaveTimer);
+  adminAddAutosaveTimer = setInterval(autosaveAdminAddPending, 30 * 1000);
+}
+
+function autosaveAdminAddPending() {
+  if (adminAddPending.length === 0) return;
+  if (document.getElementById('adminAddOverlay').style.display !== 'flex') return;
+  runScript('batchSaveRecords', adminAddPending, adminPassword)
+    .then(function() {
+      const msgEl = document.getElementById('adminAddMsg');
+      msgEl.innerHTML = '<span style="color:#1a7a34; font-size:12px;">✓ 자동저장됨</span>';
+      setTimeout(() => { msgEl.innerHTML = ''; }, 2000);
+    })
+    .catch(function() { /* 자동저장 실패는 조용히 무시, 다음 주기에 재시도 */ });
+}
+
+function renderAdminAddPendingList() {
+  const wrap = document.getElementById('adminAddPendingWrap');
+  const listEl = document.getElementById('adminAddPendingList');
+  const btn = document.getElementById('adminAddSubmitAllBtn');
+  if (adminAddPending.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  listEl.innerHTML = adminAddPending.map((p, idx) => `
+    <div class="unassigned-chip" style="margin-bottom:6px;">
+      <span>${p.name} (${p.shifts.length}일${p.gender ? ', ' + p.gender : ''}${p.locations[0] ? ', ' + p.locations[0] : ''})</span>
+      <span class="x" style="cursor:pointer; color:#c0392b; font-weight:700;" onclick="removeAdminAddPending(${idx})">✕</span>
+    </div>`).join('');
+  btn.textContent = `전체 등록 (${adminAddPending.length}명)`;
+}
+
+function removeAdminAddPending(idx) {
+  adminAddPending.splice(idx, 1);
+  renderAdminAddPendingList();
+}
+
+function closeAdminAddOverlay() {
+  document.getElementById('adminAddOverlay').style.display = 'none';
+  if (adminAddAutosaveTimer) { clearInterval(adminAddAutosaveTimer); adminAddAutosaveTimer = null; }
+}
+
+function renderAdminAddGender(selected) {
+  const container = document.getElementById('adminAddGenderRadios');
+  container.innerHTML = ['남','여'].map(g => {
+    const checked = (g === selected) ? 'checked' : '';
+    return `<label><input type="radio" name="adminAddGender" value="${g}" ${checked}>${g}</label>`;
+  }).join('');
+}
+function getAdminAddGender() {
+  const checked = document.querySelector('input[name="adminAddGender"]:checked');
+  return checked ? checked.value : '';
+}
+
+function renderAdminAddLocation(selected) {
+  const container = document.getElementById('adminAddLocationRadios');
+  container.innerHTML = LOCATIONS.map(loc => {
+    const checked = (loc === selected) ? 'checked' : '';
+    return `<label><input type="radio" name="adminAddLocation" value="${loc}" ${checked}>${loc}</label>`;
+  }).join('');
+}
+function getAdminAddLocation() {
+  const checked = document.querySelector('input[name="adminAddLocation"]:checked');
+  return checked ? [checked.value] : [];
+}
+
+function buildAdminAddDateList(prefillShifts) {
+  const container = document.getElementById('adminAddDateList');
+  container.innerHTML = '';
+  adminAddSelections = {};
+  const dates = getTwoWeekDates();
+  dates.forEach((d, idx) => {
+    if (idx === 0 || idx === 7) {
+      const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
+      const t = document.createElement('div');
+      t.className = 'week-title';
+      t.textContent = (idx===0?'1주차':'2주차') + ` (${ws.getMonth()+1}/${ws.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
+      container.appendChild(t);
+    }
+    const key2 = formatDate(d);
+    const dow = DAY_NAMES[d.getDay()];
+    adminAddSelections[key2] = { day: false, night: false };
+    if (prefillShifts) {
+      const found = prefillShifts.find(s => s.date === key2);
+      if (found) { adminAddSelections[key2].day = !!found.day; adminAddSelections[key2].night = !!found.night; }
+    }
+    const row = document.createElement('div');
+    row.className = 'date-row';
+    const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    row.innerHTML = `
+      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
+      <div class="shift-btns">
+        <div class="shift-btn ${adminAddSelections[key2].day?'selected':''}" id="aa_day_${key2}" onclick="toggleAdminAddShift('${key2}','day')">주간</div>
+        <div class="shift-btn ${adminAddSelections[key2].night?'selected':''}" id="aa_night_${key2}" onclick="toggleAdminAddShift('${key2}','night')">야간</div>
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+function toggleAdminAddShift(key, type) {
+  adminAddSelections[key][type] = !adminAddSelections[key][type];
+  document.getElementById('aa_' + type + '_' + key).classList.toggle('selected', adminAddSelections[key][type]);
+}
+
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id === 'adminAddName') {
+    const val = e.target.value.trim();
+    const match = lastRecords.find(r => r.name === val);
+    if (match) {
+      document.getElementById('adminAddPhone').value = match.phone || '';
+      document.getElementById('adminAddPin').value = match.pin || '';
+      renderAdminAddGender(match.adminGender || match.gender || '');
+      const loc = match.adminLocation || (match.locations && match.locations[0]) || '';
+      renderAdminAddLocation(loc);
+      buildAdminAddDateList(match.shifts || []);
+      document.getElementById('adminAddMsg').innerHTML = '<div class="msg info">기존 근무자 정보를 불러왔습니다. 저장하면 이 사람의 일정이 갱신됩니다.</div>';
+    } else {
+      document.getElementById('adminAddPhone').value = '';
+      document.getElementById('adminAddPin').value = '';
+      renderAdminAddGender('');
+      renderAdminAddLocation('');
+      buildAdminAddDateList(null);
+      document.getElementById('adminAddMsg').innerHTML = '';
+    }
+  }
+});
+
+function stageAdminAddRecord() {
+  const name = document.getElementById('adminAddName').value.trim();
+  const pin = document.getElementById('adminAddPin').value.trim();
+  const phone = document.getElementById('adminAddPhone').value.trim();
+  const gender = getAdminAddGender();
+  const locations = getAdminAddLocation();
+  const msgEl = document.getElementById('adminAddMsg');
+  msgEl.innerHTML = '';
+
+  if (!name) {
+    msgEl.innerHTML = '<div class="msg err">이름을 입력해주세요.</div>';
+    return;
+  }
+  if (pin && !/^[0-9]{6}$/.test(pin)) {
+    msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요. (모르면 비워두고 나중에 추가 가능)</div>';
+    return;
+  }
+  const chosen = Object.entries(adminAddSelections)
+    .filter(([k,v]) => v.day || v.night)
+    .map(([k,v]) => ({date:k, day:v.day, night:v.night}));
+  if (chosen.length === 0) {
+    msgEl.innerHTML = '<div class="msg err">최소 하나의 근무 날짜를 선택해주세요.</div>';
+    return;
+  }
+
+  adminAddPending.push({ name, pin, phone, gender, locations, shifts: chosen });
+  renderAdminAddPendingList();
+
+  // 다음 사람 입력을 위해 폼 초기화 (목록은 유지)
+  document.getElementById('adminAddName').value = '';
+  document.getElementById('adminAddPin').value = '';
+  document.getElementById('adminAddPhone').value = '';
+  renderAdminAddGender('');
+  renderAdminAddLocation('');
+  buildAdminAddDateList(null);
+  document.getElementById('adminAddName').focus();
+}
+
+function submitAllAdminAddRecords() {
+  if (adminAddPending.length === 0) return;
+  const btn = document.getElementById('adminAddSubmitAllBtn');
+  const msgEl = document.getElementById('adminAddMsg');
+  btn.disabled = true;
+  btn.textContent = '등록 중...';
+
+  runScript('batchSaveRecords', adminAddPending, adminPassword)
+    .then(function() {
+      closeAdminAddOverlay();
+      loadAdmin();
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = `전체 등록 (${adminAddPending.length}명)`;
+      msgEl.innerHTML = '<div class="msg err">등록 오류: ' + err.message + '</div>';
+    });
+}
+
+// ---------- 관리자용 근로자 일정 직접 수정 ----------
+let adminEditKey = null;
+let adminEditSelections = {};
+
+function openAdminEditShifts(key, name) {
+  adminEditKey = key;
+  const rec = lastRecords.find(r => r.key === key);
+  const existingShifts = rec ? (rec.shifts || []) : [];
+  document.getElementById('adminEditTitle').textContent = name + '님 일정 수정';
+  document.getElementById('adminEditMsg').innerHTML = '';
+  document.getElementById('adminEditPhone').value = rec ? (rec.phone || '') : '';
+  document.getElementById('adminEditPin').value = rec ? (rec.pin || '') : '';
+
+  const container = document.getElementById('adminEditDateList');
+  container.innerHTML = '';
+  adminEditSelections = {};
+  const dates = getTwoWeekDates();
+  dates.forEach((d, idx) => {
+    if (idx === 0 || idx === 7) {
+      const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
+      const t = document.createElement('div');
+      t.className = 'week-title';
+      t.textContent = (idx===0?'1주차':'2주차') + ` (${ws.getMonth()+1}/${ws.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
+      container.appendChild(t);
+    }
+    const key2 = formatDate(d);
+    const dow = DAY_NAMES[d.getDay()];
+    adminEditSelections[key2] = { day: false, night: false };
+    const found = existingShifts.find(s => s.date === key2);
+    if (found) { adminEditSelections[key2].day = !!found.day; adminEditSelections[key2].night = !!found.night; }
+
+    const row = document.createElement('div');
+    row.className = 'date-row';
+    const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    row.innerHTML = `
+      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
+      <div class="shift-btns">
+        <div class="shift-btn ${adminEditSelections[key2].day?'selected':''}" id="ae_day_${key2}" onclick="toggleAdminEditShift('${key2}','day')">주간</div>
+        <div class="shift-btn ${adminEditSelections[key2].night?'selected':''}" id="ae_night_${key2}" onclick="toggleAdminEditShift('${key2}','night')">야간</div>
+      </div>`;
+    container.appendChild(row);
+  });
+
+  document.getElementById('adminEditOverlay').style.display = 'flex';
+}
+
+function toggleAdminEditShift(key, type) {
+  adminEditSelections[key][type] = !adminEditSelections[key][type];
+  document.getElementById('ae_' + type + '_' + key).classList.toggle('selected', adminEditSelections[key][type]);
+}
+
+function closeAdminEditOverlay() {
+  document.getElementById('adminEditOverlay').style.display = 'none';
+  adminEditKey = null;
+}
+
+function saveAdminShiftsEdit() {
+  const shifts = Object.entries(adminEditSelections)
+    .filter(([k,v]) => v.day || v.night)
+    .map(([k,v]) => ({ date:k, day:v.day, night:v.night }));
+  const phone = document.getElementById('adminEditPhone').value.trim();
+  const pin = document.getElementById('adminEditPin').value.trim();
+  const msgEl = document.getElementById('adminEditMsg');
+
+  if (pin && !/^[0-9]{6}$/.test(pin)) {
+    msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function() {
+      google.script.run
+        .withSuccessHandler(function() {
+          closeAdminEditOverlay();
+          loadAdmin();
+        })
+        .withFailureHandler(function(err) {
+          msgEl.innerHTML = '<div class="msg err">연락처 저장 오류: ' + err.message + '</div>';
+        })
+        .setContactInfo(adminEditKey, phone, pin, adminPassword);
+    })
+    .withFailureHandler(function(err) {
+      msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>';
+    })
+    .adminUpdateShifts(adminEditKey, shifts, adminPassword);
+}
+
+function floorOptionsHtml() {
+  return FLOORS.map(f => `<option value="${f}">${f}</option>`).join('');
+}
+
+function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowedKeys, keyToLocation, keyToTotalCount) {
+  const shiftLabel = shift === 'day' ? '주간' : '야간';
+  const shiftClass = shift === 'day' ? 'day' : 'night';
+  const assignedForSlot = assignments.filter(a => a.date === dateStr && a.shift === shift && (!allowedKeys || allowedKeys.has(a.key)));
+  const assignedKeys = new Set(assignedForSlot.map(a => a.key));
+  const cnt = (key) => (keyToTotalCount && keyToTotalCount[key]) || 0;
+  const unassigned = applicants.filter(p => !assignedKeys.has(p.key))
+    .sort((a,b) => cnt(b.key) - cnt(a.key));
+  const byFloorThenCount = (a,b) => (floorRank(a.floor) - floorRank(b.floor)) || (cnt(b.key) - cnt(a.key));
+  const maleList = assignedForSlot.filter(a => a.gender === '남').sort(byFloorThenCount);
+  const femaleList = assignedForSlot.filter(a => a.gender === '여').sort(byFloorThenCount);
+  const maleTarget = target ? target.maleTarget : 0;
+  const femaleTarget = target ? target.femaleTarget : 0;
+
+  let html = `<div class="shift-block">`;
+  html += `<div class="shift-header-row">
+    <span class="tag ${shiftClass}">${shiftLabel}</span>
+    <span class="target-inputs">
+      목표 남<input type="number" min="0" id="mt_${dateStr}_${shift}" class="global-target-male" data-date="${dateStr}" data-shift="${shift}" data-original="${maleTarget}" value="${maleTarget}">
+      여<input type="number" min="0" id="ft_${dateStr}_${shift}" class="global-target-female" data-date="${dateStr}" data-shift="${shift}" data-original="${femaleTarget}" value="${femaleTarget}">
+      <button onclick="saveTargetClick('${dateStr}','${shift}')">저장</button>
+    </span>
+  </div>`;
+  html += `<div class="current-line">현재 남${maleList.length} 여${femaleList.length} (신청 ${applicants.length}명)</div>`;
+
+  html += '<div class="numbered-list">';
+  html += '<div class="gender-label">남</div>';
+  if (maleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
+  maleList.forEach((a, idx) => {
+    const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
+    const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
+    const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
+    const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
+    html += `<div class="numbered-item"><span>남${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</span><span class="x" onclick="unassignPerson('${dateStr}','${shift}','${a.key}')">✕</span></div>`;
+  });
+  html += '<div class="gender-label">여</div>';
+  if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
+  femaleList.forEach((a, idx) => {
+    const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
+    const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
+    const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
+    const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
+    html += `<div class="numbered-item"><span>여${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</span><span class="x" onclick="unassignPerson('${dateStr}','${shift}','${a.key}')">✕</span></div>`;
+  });
+  html += '</div>';
+
+  if (unassigned.length > 0) {
+    html += `<div class="chip-row" id="chiprow_${dateStr}_${shift}">`;
+    unassigned.forEach(p => {
+      const gId = `g_${dateStr}_${shift}_${p.key}`;
+      const fId = `f_${dateStr}_${shift}_${p.key}`;
+      const eId = `e_${dateStr}_${shift}_${p.key}`;
+      const nId = `n_${dateStr}_${shift}_${p.key}`;
+      const wId = `w_${dateStr}_${shift}_${p.key}`;
+      const sId = `s_${dateStr}_${shift}_${p.key}`;
+      const locTag = (currentLocationFilter === '전체' && p.location) ? ` <span class="loc-badge">${p.location}</span>` : '';
+      const genderOpts = ['남','여'].map(g => `<option value="${g}" ${g===p.gender?'selected':''}>${g}</option>`).join('');
+      html += `<div class="unassigned-chip">
+        <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${p.name}">
+        <span>${p.name}${locTag}</span>
+        <select id="${gId}">${genderOpts}</select>
+        <select id="${fId}">${floorOptionsHtml()}</select>
+        <label><input type="checkbox" id="${eId}">교육</label>
+        <label><input type="checkbox" id="${nId}">신규</label>
+        <label><input type="checkbox" id="${wId}">여임금</label>
+        <button onclick="assignPerson('${dateStr}','${shift}','${p.key}', document.getElementById('${gId}').value, document.getElementById('${fId}').value, document.getElementById('${eId}').checked, document.getElementById('${nId}').checked, document.getElementById('${wId}').checked)">배치</button>
+      </div>`;
+    });
+    html += '</div>';
+    html += `<div class="batch-row">
+      <button class="batch-all-btn" onclick="selectAllUnassigned('${dateStr}','${shift}')">전체선택</button>
+      <button class="batch-all-btn primary-batch" onclick="batchAssign('${dateStr}','${shift}')">✅ 선택 일괄배치</button>
+    </div>`;
+  }
+
+  const taId = `text_${dateStr}_${shift}`;
+  const msgId = `copymsg_${dateStr}_${shift}`;
+  const previewText = buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList);
+  html += `<div class="text-preview-wrap">
+    <textarea id="${taId}" readonly>${previewText}</textarea>
+    <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
+    <span class="copy-msg" id="${msgId}"></span>
+  </div>`;
+
+  html += '</div>';
+  return html;
+}
+
+function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, keyToLocation, keyToWeek1Count, keyToWeek2Count, week1Set) {
+  let html = '<div class="admin-section-title">날짜별 배치판</div>';
+  const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
+  html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
+
+  allDates.forEach(d => {
+    const dateStr = formatDate(d);
+    const keyToTotalCount = week1Set.has(dateStr) ? keyToWeek1Count : keyToWeek2Count;
+    const dayTarget = targets.find(t => t.date === dateStr && t.shift === 'day');
+    const nightTarget = targets.find(t => t.date === dateStr && t.shift === 'night');
+    const dayApplicants = (byDate[dateStr] && byDate[dateStr].day) || [];
+    const nightApplicants = (byDate[dateStr] && byDate[dateStr].night) || [];
+    if (allowedKeys && dayApplicants.length === 0 && nightApplicants.length === 0) return;
+
+    html += `<div class="assign-date-card">`;
+    const titleBadge = currentLocationFilter !== '전체' ? ` <span class="loc-badge">${viewLabel}</span>` : '';
+    html += `<div class="assign-date-title">${shortDate(dateStr)}${titleBadge}</div>`;
+    html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, keyToLocation, keyToTotalCount);
+    html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, keyToLocation, keyToTotalCount);
+    html += `</div>`;
+  });
+  return html;
+}
+
+function saveTargetClick(date, shift) {
+  const maleTarget = document.getElementById(`mt_${date}_${shift}`).value;
+  const femaleTarget = document.getElementById(`ft_${date}_${shift}`).value;
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('목표 저장 오류: ' + err.message); })
+    .saveTarget(date, shift, maleTarget, femaleTarget, adminPassword);
+}
+
+function selectAllUnassigned(dateStr, shift) {
+  const container = document.getElementById(`chiprow_${dateStr}_${shift}`);
+  if (!container) return;
+  const boxes = container.querySelectorAll('.batch-select');
+  const allChecked = Array.from(boxes).every(b => b.checked);
+  boxes.forEach(b => { b.checked = !allChecked; });
+}
+
+function batchAssign(dateStr, shift) {
+  const container = document.getElementById(`chiprow_${dateStr}_${shift}`);
+  if (!container) return;
+  const checked = container.querySelectorAll('.batch-select:checked');
+  if (checked.length === 0) { alert('배치할 사람을 먼저 체크해주세요.'); return; }
+  const list = [];
+  checked.forEach(cb => {
+    const key = cb.dataset.key;
+    const name = cb.dataset.name;
+    const gender = document.getElementById(`g_${dateStr}_${shift}_${key}`).value;
+    const floor = document.getElementById(`f_${dateStr}_${shift}_${key}`).value;
+    const isEducation = document.getElementById(`e_${dateStr}_${shift}_${key}`).checked;
+    const isNew = document.getElementById(`n_${dateStr}_${shift}_${key}`).checked;
+    const isWomenWage = document.getElementById(`w_${dateStr}_${shift}_${key}`).checked;
+    list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
+  });
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('일괄배치 오류: ' + err.message); })
+    .batchSaveAssignments(list, adminPassword);
+}
+
+function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWomenWage) {
+  const rec = lastRecords.find(r => r.key === key);
+  const name = rec ? rec.name : '';
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
+    .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
+}
+
+function unassignPerson(date, shift, key) {
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('해제 오류: ' + err.message); })
+    .removeAssignment(date, shift, key, adminPassword);
+}
+
+function setLocationFilter(loc) {
+  currentLocationFilter = loc;
+  renderAdmin(lastRecords, lastAssignments, lastTargets);
+}
+
+function buildLocationTabs() {
+  const allTabs = ['전체', ...LOCATIONS];
+  let html = '<div class="location-tabs">';
+  allTabs.forEach(loc => {
+    const active = (loc === currentLocationFilter) ? 'active' : '';
+    html += `<div class="location-tab ${active}" onclick="setLocationFilter('${loc}')">${loc}</div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function loadAdmin() {
+  const content = document.getElementById('adminContent');
+  content.innerHTML = '<div class="empty">불러오는 중...</div>';
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword)])
+    .then(function(results) {
+      lastRecords = results[0] || [];
+      lastAssignments = results[1] || [];
+      lastTargets = results[2] || [];
+      renderAdmin(lastRecords, lastAssignments, lastTargets);
+    })
+    .catch(function(err) {
+      content.innerHTML = '<div class="empty">불러오기 실패: ' + err.message + '</div>';
+    });
+}
+
+function renderAdmin(records, assignments, targets) {
+  const content = document.getElementById('adminContent');
+
+  const filteredRecords = (currentLocationFilter === '전체')
+    ? (records || [])
+    : (records || []).filter(rec => {
+        const effective = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
+        return effective === currentLocationFilter;
+      });
+
+  const byDate = {};
+  filteredRecords.forEach(rec => {
+    const loc = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
+    const gnd = rec.adminGender || rec.gender || '';
+    (rec.shifts||[]).forEach(s => {
+      if (!byDate[s.date]) byDate[s.date] = { day: [], night: [] };
+      if (s.day) byDate[s.date].day.push({ key: rec.key, name: rec.name, location: loc, gender: gnd });
+      if (s.night) byDate[s.date].night.push({ key: rec.key, name: rec.name, location: loc, gender: gnd });
+    });
+  });
+
+  const allDates = getTwoWeekDates();
+  const week1 = allDates.slice(0,7), week2 = allDates.slice(7,14);
+  const week1Set = new Set(week1.map(formatDate));
+  const week2Set = new Set(week2.map(formatDate));
+  const pStart = shortDate(formatDate(allDates[0])), pEnd = shortDate(formatDate(allDates[13]));
+  const w1Start = shortDate(formatDate(week1[0])), w1End = shortDate(formatDate(week1[6]));
+  const w2Start = shortDate(formatDate(week2[0])), w2End = shortDate(formatDate(week2[6]));
+
+  const keyToLocation = {};
+  const keyToWeek1Count = {};
+  const keyToWeek2Count = {};
+  (records || []).forEach(rec => {
+    keyToLocation[rec.key] = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
+    keyToWeek1Count[rec.key] = (rec.shifts || []).filter(s => week1Set.has(s.date)).length;
+    keyToWeek2Count[rec.key] = (rec.shifts || []).filter(s => week2Set.has(s.date)).length;
+  });
+
+  let html = buildLocationTabs();
+  html += buildGenderFixPanel(filteredRecords);
+  const locationLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
+  html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
+  html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
+  if (filteredRecords.length === 0) {
+    html += '<div class="admin-section-title">날짜별 집계</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
+  } else {
+    html += '<div class="admin-section-title">날짜별 집계</div>';
+    html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
+    html += buildWeekTable(week1, byDate, '1주차', keyToWeek1Count);
+    html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
+  }
+
+  const allowedKeys = (currentLocationFilter === '전체') ? null : new Set(filteredRecords.map(r => r.key));
+  html += buildAssignBoard(allDates, byDate, assignments || [], targets || [], allowedKeys, keyToLocation, keyToWeek1Count, keyToWeek2Count, week1Set);
+
+  if (filteredRecords.length > 0) {
+    html += buildApplicantTable(filteredRecords, week1Set, '1주차', w1Start, w1End);
+    html += buildApplicantTable(filteredRecords, week2Set, '2주차', w2Start, w2End);
+  }
+
+  content.innerHTML = html;
+  addScrollArrows(content);
+}
+renderLocationCheckboxes([]);
+renderGenderRadios('');
+
+// 5분마다 관리자 화면에 입력된 내용을 자동 저장 (컴퓨터 오류/새로고침 대비)
+setInterval(function() {
+  const adminViewEl = document.getElementById('adminView');
+  if (adminAuthenticated && adminViewEl && adminViewEl.style.display === 'block') {
+    saveAllOnScreen();
+  }
+}, 5 * 60 * 1000);
+</script>
+</body>
+</html>
