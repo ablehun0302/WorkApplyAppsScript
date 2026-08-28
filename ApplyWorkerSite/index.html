@@ -990,6 +990,7 @@ function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
 }
 
 function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
+  const genderRank = (g) => g === '남' ? 0 : 1;
   const rows = records.map(rec => {
     const cnt = (rec.shifts||[]).filter(s => weekDatesSet.has(s.date)).length;
     const requested = (rec.locations && rec.locations[0]) || '';
@@ -997,11 +998,11 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
     const genderRequested = rec.gender || '';
     const genderEffective = rec.adminGender || genderRequested;
     return { key: rec.key, name: rec.name, phone: rec.phone, cnt, requested, effective: adminLoc || requested, message: rec.message || '', genderEffective };
-  }).filter(r => r.cnt > 0).sort((a,b) => a.name.localeCompare(b.name, 'ko'));
+  }).filter(r => r.cnt > 0).sort((a,b) => (genderRank(a.genderEffective) - genderRank(b.genderEffective)) || a.name.localeCompare(b.name, 'ko'));
 
   const tableId = 'applicantTable_' + label.replace(/\s+/g, '');
   let html = `<div class="admin-section-title">${label} 신청자 목록</div>`;
-  html += `<div class="period-caption">${pStart} ~ ${pEnd} · 이름 가나다순 · 배치 장소는 신청 장소와 다르게 지정할 수 있어요</div>`;
+  html += `<div class="period-caption">${pStart} ~ ${pEnd} · 성별(남→여)·이름순 · 배치 장소는 신청 장소와 다르게 지정할 수 있어요</div>`;
   html += `<div class="table-wrap" id="${tableId}"><table style="min-width:900px;"><tr><th>선택</th><th>이름</th><th>성별</th><th>신청일수</th><th>연락처</th><th>신청 장소</th><th>배치 장소</th><th>일정</th><th>하고 싶은 말</th><th>저장</th></tr>`;
   if (rows.length === 0) html += '<tr><td colspan="10" style="text-align:center; color:#999;">신청자 없음</td></tr>';
   rows.forEach(r => {
@@ -1566,8 +1567,9 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   const assignedForSlot = assignments.filter(a => a.date === dateStr && a.shift === shift && (!allowedKeys || allowedKeys.has(a.key)));
   const assignedKeys = new Set(assignedForSlot.map(a => a.key));
   const cnt = (key) => (keyToTotalCount && keyToTotalCount[key]) || 0;
+  const genderRank = (g) => g === '남' ? 0 : 1;
   const unassigned = applicants.filter(p => !assignedKeys.has(p.key))
-    .sort((a,b) => cnt(b.key) - cnt(a.key));
+    .sort((a,b) => (genderRank(a.gender) - genderRank(b.gender)) || a.name.localeCompare(b.name, 'ko'));
   const byFloorThenCount = (a,b) => (floorRank(a.floor) - floorRank(b.floor)) || (cnt(b.key) - cnt(a.key));
   const maleList = assignedForSlot.filter(a => a.gender === '남').sort(byFloorThenCount);
   const femaleList = assignedForSlot.filter(a => a.gender === '여').sort(byFloorThenCount);
