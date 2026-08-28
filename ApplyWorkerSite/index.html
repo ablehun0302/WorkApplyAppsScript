@@ -999,10 +999,11 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
     return { key: rec.key, name: rec.name, phone: rec.phone, cnt, requested, effective: adminLoc || requested, message: rec.message || '', genderEffective };
   }).filter(r => r.cnt > 0).sort((a,b) => a.name.localeCompare(b.name, 'ko'));
 
+  const tableId = 'applicantTable_' + label.replace(/\s+/g, '');
   let html = `<div class="admin-section-title">${label} 신청자 목록</div>`;
   html += `<div class="period-caption">${pStart} ~ ${pEnd} · 이름 가나다순 · 배치 장소는 신청 장소와 다르게 지정할 수 있어요</div>`;
-  html += '<div class="card"><table><tr><th>이름</th><th>성별</th><th>신청일수</th><th>연락처</th><th>신청 장소</th><th>배치 장소</th><th>일정</th><th>하고 싶은 말</th></tr>';
-  if (rows.length === 0) html += '<tr><td colspan="8" style="text-align:center; color:#999;">신청자 없음</td></tr>';
+  html += `<div class="table-wrap" id="${tableId}"><table style="min-width:900px;"><tr><th>선택</th><th>이름</th><th>성별</th><th>신청일수</th><th>연락처</th><th>신청 장소</th><th>배치 장소</th><th>일정</th><th>하고 싶은 말</th><th>저장</th></tr>`;
+  if (rows.length === 0) html += '<tr><td colspan="10" style="text-align:center; color:#999;">신청자 없음</td></tr>';
   rows.forEach(r => {
     const selId = 'locadmin_' + r.key;
     const genderSelId = 'genderadmin_' + r.key;
@@ -1012,25 +1013,36 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
     const genderOriginal = (r.genderEffective === '남' || r.genderEffective === '여') ? r.genderEffective : '남';
     const options = LOCATIONS.map(l => `<option value="${l}" ${l===locationOriginal?'selected':''}>${l}</option>`).join('');
     const genderOptions = ['남','여'].map(g => `<option value="${g}" ${g===genderOriginal?'selected':''}>${g}</option>`).join('');
-    html += `<tr><td>${r.name}</td>
-      <td><select id="${genderSelId}" class="global-gender-select" data-key="${r.key}" data-original="${genderOriginal}" style="font-size:12px; padding:4px;">${genderOptions}</select>
-      <button style="margin-left:2px; font-size:11px; padding:4px 6px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminGender('${r.key}','${genderSelId}')">저장</button></td>
+    html += `<tr><td><input type="checkbox" class="applicant-check" data-key="${r.key}"></td><td>${r.name}</td>
+      <td><select id="${genderSelId}" class="global-gender-select" data-key="${r.key}" data-original="${genderOriginal}" style="font-size:12px; padding:4px;">${genderOptions}</select></td>
       <td>${r.cnt}</td><td>${r.phone||'-'}</td><td>${r.requested||'-'}</td>
-      <td><select id="${selId}" class="global-location-select" data-key="${r.key}" data-original="${locationOriginal}" style="font-size:12px; padding:4px;">${options}</select>
-      <button style="margin-left:4px; font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminLocation('${r.key}','${selId}')">저장</button></td>
+      <td><select id="${selId}" class="global-location-select" data-key="${r.key}" data-original="${locationOriginal}" style="font-size:12px; padding:4px;">${options}</select></td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openAdminEditShifts('${r.key}','${r.name}')">일정수정</button></td>
-      <td style="max-width:160px; font-size:12px; white-space:pre-wrap;">${r.message ? r.message : '-'}</td></tr>`;
+      <td style="max-width:160px; font-size:12px; white-space:pre-wrap;">${r.message ? r.message : '-'}</td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #2f6fed; background:#2f6fed; color:white; cursor:pointer;" onclick="saveAdminRow('${r.key}','${genderSelId}','${selId}')">저장</button></td></tr>`;
   });
   html += '</table></div>';
+  if (rows.length > 0) {
+    html += `<div class="batch-row">
+      <button class="batch-all-btn" onclick="selectAllApplicants('${tableId}')">전체선택</button>
+      <button class="batch-all-btn primary-batch" onclick="batchSaveApplicantLocations('${tableId}')">✅ 선택 일괄저장</button>
+    </div>`;
+  }
   return html;
 }
 
-function saveAdminLocation(key, selId) {
-  const val = document.getElementById(selId).value;
+function saveAdminRow(key, genderSelId, locSelId) {
+  const gender = document.getElementById(genderSelId).value;
+  const location = document.getElementById(locSelId).value;
   google.script.run
-    .withSuccessHandler(function() {})
-    .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
-    .setAdminLocation(key, val, adminPassword);
+    .withSuccessHandler(function() {
+      google.script.run
+        .withSuccessHandler(function() { loadAdmin(); })
+        .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
+        .setAdminLocation(key, location, adminPassword);
+    })
+    .withFailureHandler(function(err) { alert('성별 저장 오류: ' + err.message); })
+    .setAdminGender(key, gender, adminPassword);
 }
 
 function saveAdminGender(key, selId) {
@@ -1039,6 +1051,31 @@ function saveAdminGender(key, selId) {
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('성별 저장 오류: ' + err.message); })
     .setAdminGender(key, val, adminPassword);
+}
+
+function selectAllApplicants(tableId) {
+  const container = document.getElementById(tableId);
+  if (!container) return;
+  const boxes = container.querySelectorAll('.applicant-check');
+  const allChecked = Array.from(boxes).every(b => b.checked);
+  boxes.forEach(b => { b.checked = !allChecked; });
+}
+
+function batchSaveApplicantLocations(tableId) {
+  const container = document.getElementById(tableId);
+  if (!container) return;
+  const checked = container.querySelectorAll('.applicant-check:checked');
+  if (checked.length === 0) { alert('저장할 사람을 먼저 체크해주세요.'); return; }
+  const list = [];
+  checked.forEach(cb => {
+    const key = cb.dataset.key;
+    const sel = document.getElementById('locadmin_' + key);
+    list.push({ key: key, location: sel.value });
+  });
+  google.script.run
+    .withSuccessHandler(function() { loadAdmin(); })
+    .withFailureHandler(function(err) { alert('일괄저장 오류: ' + err.message); })
+    .batchSetLocations(list, adminPassword);
 }
 
 // ---------- 전체신청자 목록 (누적 인사 정보 + 문자발송) ----------
