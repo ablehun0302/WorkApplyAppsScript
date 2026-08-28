@@ -58,6 +58,7 @@
   .reorder-btn { cursor: pointer; font-size: 10px; color: #2f6fed; padding: 1px 3px; border-radius: 3px; background: #eef1ff; }
   tr.gender-divider td { background: #f0f2f5; font-weight: 700; font-size: 11px; color: #1a56db; }
   .floor-clickable { cursor: pointer; }
+  .worker-name-click { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
   .mark-circle { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #e53e3e; border-radius: 50%; }
   .mark-square { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #1a1a1a; }
   .mark-triangle-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
@@ -253,6 +254,7 @@
       <div id="adminEditDateList"></div>
       <button class="primary" onclick="saveAdminShiftsEdit()">저장</button>
       <button class="secondary" onclick="closeAdminEditOverlay()">취소</button>
+      <button class="danger" onclick="cancelWorkerApplicationFromEdit()">근무 취소</button>
       <div id="adminEditMsg"></div>
     </div>
   </div>
@@ -692,6 +694,65 @@ function setCellFloor(dateStr, shiftKey, key, floor) {
     .saveAssignment(dateStr, shiftKey, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
 }
 
+function closeLocationMenu() {
+  const m = document.getElementById('locationMenuPopup');
+  if (m) m.remove();
+}
+
+function showLocationMenu(evt, key) {
+  evt.stopPropagation();
+  closeLocationMenu();
+  const menu = document.createElement('div');
+  menu.id = 'locationMenuPopup';
+  menu.style.cssText = 'position:fixed; background:white; border:1px solid #ccc; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.2); z-index:2000; padding:6px; display:flex; flex-direction:column; gap:2px; max-height:320px; overflow-y:auto;';
+  const rect = evt.currentTarget.getBoundingClientRect();
+  let top = rect.bottom + 4;
+  let left = rect.left;
+  if (left + 160 > window.innerWidth) left = window.innerWidth - 166;
+  if (top + 320 > window.innerHeight) top = Math.max(4, rect.top - 324);
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  LOCATIONS.forEach(loc => {
+    const btn = document.createElement('button');
+    btn.textContent = loc;
+    btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fafafa; border-radius:6px; cursor:pointer; text-align:left;';
+    btn.onclick = function(e) { e.stopPropagation(); moveWorkerLocation(key, loc); };
+    menu.appendChild(btn);
+  });
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = '근무 취소';
+  cancelBtn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fdecea; color:#c0392b; border-radius:6px; cursor:pointer; text-align:left;';
+  cancelBtn.onclick = function(e) { e.stopPropagation(); cancelWorkerApplication(key); };
+  menu.appendChild(cancelBtn);
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', closeLocationMenu, { once: true }), 0);
+}
+
+function moveWorkerLocation(key, location) {
+  google.script.run
+    .withSuccessHandler(function() { closeLocationMenu(); loadAdmin(); })
+    .withFailureHandler(function(err) { alert('배치 장소 이동 오류: ' + err.message); })
+    .setAdminLocation(key, location, adminPassword);
+}
+
+function cancelWorkerApplicationCore_(key, onDone) {
+  const rec = lastRecords.find(r => r.key === key);
+  if (!rec) return;
+  if (!confirm(rec.name + '님의 이번 신청을 전체 취소하시겠습니까? 되돌릴 수 없습니다.')) return;
+  google.script.run
+    .withSuccessHandler(function() { onDone(); loadAdmin(); })
+    .withFailureHandler(function(err) { alert('근무 취소 오류: ' + err.message); })
+    .deleteRecord(rec.name, rec.pin);
+}
+
+function cancelWorkerApplication(key) {
+  cancelWorkerApplicationCore_(key, closeLocationMenu);
+}
+
+function cancelWorkerApplicationFromEdit() {
+  cancelWorkerApplicationCore_(adminEditKey, closeAdminEditOverlay);
+}
+
 function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, locationLabel, compact, assignments) {
   const weekDatesStr = weekDates.map(formatDate);
   const weekSet = new Set(weekDatesStr);
@@ -728,16 +789,17 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
 
   function renderRow(r, groupList) {
     let nameCell;
+    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${r.name}</span>`;
     if (r.gender === '남' || r.gender === '여') {
       const posInGroup = groupList.findIndex(x => x.key === r.key);
       const upKey = posInGroup > 0 ? groupList[posInGroup-1].key : null;
       const downKey = posInGroup < groupList.length-1 ? groupList[posInGroup+1].key : null;
       const upBtn = upKey ? `<span class="reorder-btn" onclick="reorderWorker('${r.key}','${upKey}')">▲</span>` : '';
       const downBtn = downKey ? `<span class="reorder-btn" onclick="reorderWorker('${r.key}','${downKey}')">▼</span>` : '';
-      nameCell = `${r.name}<span class="reorder-btns">${upBtn}${downBtn}</span>`;
+      nameCell = `${nameSpan}<span class="reorder-btns">${upBtn}${downBtn}</span>`;
     } else {
       const selId = 'gfix_' + shiftKey + '_' + weekDatesStr[0] + '_' + r.key;
-      nameCell = `${r.name} <span style="color:#c0392b; font-size:10px;">(미지정)</span>
+      nameCell = `${nameSpan} <span style="color:#c0392b; font-size:10px;">(미지정)</span>
         <select id="${selId}" style="font-size:10px; padding:1px; margin-left:2px;"><option value="">-</option><option value="남">남</option><option value="여">여</option></select>
         <button style="font-size:9px; padding:1px 4px; border-radius:4px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminGender('${r.key}','${selId}')">저장</button>`;
     }
