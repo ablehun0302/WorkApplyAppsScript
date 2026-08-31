@@ -76,6 +76,7 @@
   .period-caption { font-size: 12px; color: #888; margin-bottom: 6px; }
   .empty { text-align: center; color: #999; padding: 20px; font-size: 14px; }
   #calendarSection { display: none; }
+  #applicationDetailsSection { display: none; }
   .location-checkboxes { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; border: 1px solid #eee; border-radius: 10px; padding: 4px 12px; }
   .location-checkboxes label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400; margin: 0; padding: 8px 0; border-bottom: 1px solid #f2f2f2; }
   .location-checkboxes label:last-child { border-bottom: none; }
@@ -141,6 +142,11 @@
       <input type="password" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
       <label>연락처 (신규 신청 시 필요)</label>
       <input type="tel" id="phone" placeholder="010-0000-0000">
+      <div id="lookupMsg"></div>
+      <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
+    </div>
+
+    <div class="card" id="applicationDetailsSection">
       <label>성별</label>
       <div id="genderRadios" class="location-checkboxes"></div>
       <label>근무 장소 (해당되는 곳 한 곳만 선택)</label>
@@ -148,8 +154,6 @@
       <label>관리자에게 하고 싶은 말 (선택)</label>
       <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
       <textarea id="messageBox" rows="4" placeholder="예: 월화수목금토일 신청합니다.&#10;예:주간_월화수목금/야간_화수목금 신청합니다.&#10;예;월화수목금_신세계푸드/토일_BGF 신청합니다" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
-      <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
-      <div id="lookupMsg"></div>
     </div>
 
     <div id="calendarSection">
@@ -157,10 +161,10 @@
         <div id="modeMsg"></div>
         <div id="dateListContainer"></div>
       </div>
+      <div id="resultMsg"></div>
       <button class="primary" id="submitBtn" onclick="submitApplication()">저장하기</button>
       <button class="danger" id="cancelBtn" onclick="cancelApplication()" style="display:none;">신청 전체 취소</button>
       <button class="secondary" onclick="resetIdentity()">다른 사람으로 조회 / 처음으로</button>
-      <div id="resultMsg"></div>
     </div>
   </div>
 
@@ -484,6 +488,7 @@ function lookupRecord() {
       document.getElementById('name').disabled = true;
       document.getElementById('pin').disabled = true;
       document.getElementById('calendarSection').style.display = 'block';
+      document.getElementById('applicationDetailsSection').style.display = 'block';
       if (existing) {
         isEditMode = true;
         document.getElementById('phone').value = existing.phone || '';
@@ -501,6 +506,7 @@ function lookupRecord() {
           document.getElementById('name').disabled = false;
           document.getElementById('pin').disabled = false;
           document.getElementById('calendarSection').style.display = 'none';
+          document.getElementById('applicationDetailsSection').style.display = 'none';
           return;
         }
         renderGenderRadios('');
@@ -549,7 +555,10 @@ function submitApplication() {
     })
     .withFailureHandler(function(err) {
       btn.disabled = false; btn.textContent = '저장하기';
-      resultMsg.innerHTML = '<div class="msg err">오류: ' + err.message + '</div>';
+      const msg = err.message.indexOf('Lock timeout') !== -1
+        ? '지금 신청자가 많아 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+        : err.message;
+      resultMsg.innerHTML = '<div class="msg err">오류: ' + msg + '</div>';
     })
     .saveRecord(currentName, currentPin, phone, chosen, locations, message, gender);
 }
@@ -575,6 +584,7 @@ function resetIdentity() {
   renderLocationCheckboxes([]);
   document.getElementById('messageBox').value = '';
   document.getElementById('calendarSection').style.display = 'none';
+  document.getElementById('applicationDetailsSection').style.display = 'none';
   document.getElementById('lookupMsg').innerHTML = '';
   document.getElementById('resultMsg').innerHTML = '';
   currentName = ''; currentPin = ''; isEditMode = false;
@@ -1259,11 +1269,13 @@ function sendBulkSms() {
 }
 
 // ---------- 관리자용 근로자 추가 (신청 누락자 등록) ----------
+const autosaveTerm = 60;
+
 let adminAddSelections = {};
 
 let adminAddPending = [];
 
-let adminAddAutosaveKeys = {}; // 이미 자동저장된 대기목록 항목의 key 캐시 (중복 방지용)
+let adminAddAutosaveSnapshot = ''; // 마지막으로 자동저장된 대기목록 스냅샷 (변경 없으면 재저장 스킵)
 let adminAddAutosaveTimer = null;
 
 function openAdminAddOverlay() {
@@ -1272,7 +1284,7 @@ function openAdminAddOverlay() {
   document.getElementById('adminAddPhone').value = '';
   document.getElementById('adminAddMsg').innerHTML = '';
   adminAddPending = [];
-  adminAddAutosaveKeys = {};
+  adminAddAutosaveSnapshot = '';
   document.getElementById('adminAddSubmitAllBtn').disabled = false;
   renderAdminAddPendingList();
 
@@ -1287,14 +1299,17 @@ function openAdminAddOverlay() {
   document.getElementById('adminAddOverlay').style.display = 'flex';
 
   if (adminAddAutosaveTimer) clearInterval(adminAddAutosaveTimer);
-  adminAddAutosaveTimer = setInterval(autosaveAdminAddPending, 30 * 1000);
+  adminAddAutosaveTimer = setInterval(autosaveAdminAddPending, autosaveTerm * 1000);
 }
 
 function autosaveAdminAddPending() {
   if (adminAddPending.length === 0) return;
   if (document.getElementById('adminAddOverlay').style.display !== 'flex') return;
+  const snapshot = JSON.stringify(adminAddPending);
+  if (snapshot === adminAddAutosaveSnapshot) return;
   runScript('batchSaveRecords', adminAddPending, adminPassword)
     .then(function() {
+      adminAddAutosaveSnapshot = snapshot;
       const msgEl = document.getElementById('adminAddMsg');
       msgEl.innerHTML = '<span style="color:#1a7a34; font-size:12px;">✓ 자동저장됨</span>';
       setTimeout(() => { msgEl.innerHTML = ''; }, 2000);

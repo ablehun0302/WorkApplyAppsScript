@@ -282,38 +282,6 @@ function lookupRecord(name, pin) {
   return { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '' };
 }
 
-// 여러 명을 한 번에 등록 (한 번의 서버 호출로 처리해서 빠름)
-function batchSaveRecords(list) {
-  const sheet = getDataSheet_();
-  const data = sheet.getDataRange().getValues();
-  const keyToRow = {};
-  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
-
-  list.forEach(item => {
-    const key = makeKey_(item.name, item.pin || '');
-    const now = new Date().toISOString();
-    const row = keyToRow[key];
-    let existingAdminLocation = '', existingAdminGender = '';
-    if (row) {
-      existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
-      existingAdminGender = sheet.getRange(row, 11).getValue() || '';
-    }
-    const rowData = [
-      key, item.name.trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
-      JSON.stringify(item.shifts || []), JSON.stringify(item.locations || []),
-      existingAdminLocation, '', item.gender || '', existingAdminGender
-    ];
-    if (!row) {
-      sheet.appendRow(rowData);
-      keyToRow[key] = sheet.getLastRow();
-    } else {
-      sheet.getRange(row, 1, 1, 11).setValues([rowData]);
-    }
-  });
-  rebuildLocationSheets_();
-  return true;
-}
-
 // 여러 명의 근무자를 한 번에 일괄 등록 (관리자 추가 화면에서 사용)
 function batchSaveRecords(list, adminPw) {
   requireAdmin_(adminPw);
