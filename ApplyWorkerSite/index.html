@@ -8,6 +8,9 @@
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif; background: #f4f5f7; margin: 0; padding: 16px; color: #222; }
   .container { max-width: 560px; margin: 0 auto; }
+  body.admin-active .container { max-width: clamp(560px, 92vw, 1300px); }
+  .assign-board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-items: start; }
+  .assign-board-grid .assign-date-card { margin-bottom: 0; }
   h1 { font-size: 20px; margin-bottom: 4px; }
   .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
   .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -607,6 +610,7 @@ function switchTab(tab) {
   document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
   document.getElementById('workerView').style.display = tab==='worker' ? 'block' : 'none';
   document.getElementById('adminView').style.display = tab==='admin' ? 'block' : 'none';
+  document.body.classList.toggle('admin-active', tab==='admin');
   if (tab === 'admin') {
     if (adminAuthenticated) {
       document.getElementById('adminLoginCard').style.display = 'none';
@@ -1843,6 +1847,7 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
   const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
 
+  html += '<div class="assign-board-grid">';
   allDates.forEach(d => {
     const dateStr = formatDate(d);
     const keyToTotalCount = week1Set.has(dateStr) ? keyToWeek1Count : keyToWeek2Count;
@@ -1859,6 +1864,7 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
     html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, keyToLocation, keyToTotalCount);
     html += `</div>`;
   });
+  html += '</div>';
   return html;
 }
 
