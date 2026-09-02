@@ -666,6 +666,32 @@ function removeAssignment(date, shift, key, adminPw) {
   return true;
 }
 
+// 여러 명을 한 번에 배치취소 (서버 왕복을 1번으로 줄여서 빠르게 처리)
+function batchRemoveAssignments(list, adminPw) {
+  requireAdmin_(adminPw);
+  const sheet = getAssignSheet_();
+  const data = sheet.getDataRange().getValues();
+  const keyToRow = {};
+  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+
+  const rowsToDelete = [];
+  list.forEach(item => {
+    const assignKey = makeAssignKey_(item.date, item.shift, item.key);
+    const row = keyToRow[assignKey];
+    if (row) rowsToDelete.push(row);
+  });
+  rowsToDelete.sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
+
+  // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거
+  list.forEach(item => {
+    const otherShift = item.shift === 'day' ? 'night' : 'day';
+    const otherAssignKey = makeAssignKey_(item.date, otherShift, item.key);
+    const stillHas = findRow_(sheet, 0, otherAssignKey) > -1;
+    if (!stillHas) removeHistory_(item.key, item.date);
+  });
+  return true;
+}
+
 // ---- 목표 인원 관련 ----
 function getTargets(adminPw) {
   requireAdmin_(adminPw);
