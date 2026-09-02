@@ -98,7 +98,14 @@
 
   /* 배치판 (번호리스트형) */
   .assign-date-card { background: white; border-radius: 12px; padding: 14px; margin-bottom: 10px; border: 1px solid #eee; }
-  .assign-date-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+  .assign-date-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+  .assign-date-toggle { font-size: 12px; color: #999; transition: transform 0.15s; }
+  .assign-date-card.collapsed .assign-date-toggle { transform: rotate(-90deg); }
+  .assign-date-card.collapsed .current-line,
+  .assign-date-card.collapsed .target-inputs,
+  .assign-date-card.collapsed .chip-row,
+  .assign-date-card.collapsed .batch-row,
+  .assign-date-card.collapsed .text-preview-wrap { display: none; }
   .shift-block { margin-bottom: 14px; }
   .shift-header-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 700; margin-bottom: 4px; }
   .shift-header-row .tag { padding: 2px 6px; border-radius: 6px; font-size: 11px; }
@@ -1857,11 +1864,13 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
     const nightApplicants = (byDate[dateStr] && byDate[dateStr].night) || [];
     if (allowedKeys && dayApplicants.length === 0 && nightApplicants.length === 0) return;
 
-    html += `<div class="assign-date-card">`;
+    html += `<div class="assign-date-card collapsed">`;
     const titleBadge = currentLocationFilter !== '전체' ? ` <span class="loc-badge">${viewLabel}</span>` : '';
-    html += `<div class="assign-date-title">${shortDate(dateStr)}${titleBadge}</div>`;
+    html += `<div class="assign-date-title" onclick="this.closest('.assign-date-card').classList.toggle('collapsed')"><span>${shortDate(dateStr)}${titleBadge}</span><span class="assign-date-toggle">▼</span></div>`;
+    html += `<div class="assign-date-body">`;
     html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, keyToLocation, keyToTotalCount);
     html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, keyToLocation, keyToTotalCount);
+    html += `</div>`;
     html += `</div>`;
   });
   html += '</div>';
