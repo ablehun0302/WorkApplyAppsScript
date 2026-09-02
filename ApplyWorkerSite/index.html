@@ -72,6 +72,16 @@
   td.date-pending-on { background: #d7f5da !important; }
   td.date-pending-off { background: #fddede !important; text-decoration: line-through; }
   td.rowhead.rowhead-pending { background: #fff3cd !important; }
+  body.info-edit-mode .date-cell.floor-clickable:hover { outline: 2px solid #2f6fed; outline-offset: -2px; }
+  td.info-pending { outline: 2px solid #2f6fed; outline-offset: -2px; }
+  td.rowhead.infohead-pending { background: #e3f0ff !important; }
+  .info-edit-options { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -6px 0 10px; padding: 8px 10px; background: #eef4ff; border-radius: 8px; }
+  .info-edit-options-label { font-size: 12px; color: #555; font-weight: 700; }
+  .info-edit-floor-row { display: flex; flex-wrap: wrap; gap: 3px; }
+  .info-edit-floor-btn { font-size: 11px; padding: 4px 6px; border-radius: 5px; border: 1px solid #ccc; background: white; cursor: pointer; }
+  .info-edit-floor-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
+  .info-edit-flag-row { display: flex; flex-wrap: nowrap; gap: 10px; }
+  .info-edit-options label { font-size: 12px; display: flex; align-items: center; gap: 3px; cursor: pointer; white-space: nowrap; }
   .mark-circle { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #e53e3e; border-radius: 50%; }
   .mark-square { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #1a1a1a; }
   .mark-triangle-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
@@ -846,7 +856,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       }
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
-      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor)}</td>`;
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -1004,11 +1014,17 @@ function buildDateEditToolbar() {
   </div>`;
 }
 
-// compact 표의 날짜 칸 클릭: 수정모드면 신청 여부 토글, 아니면 기존처럼 층 배치 팝업
+// compact 표의 날짜 칸 클릭: 신청날짜 수정모드면 신청 여부 토글, 배치정보 수정모드면 일괄수정 팝업, 아니면 기존처럼 층 배치 팝업
 function handleDateCellClick(evt, dateStr, shiftKey, key, hasShift) {
   if (dateEditMode) {
     evt.stopPropagation();
     toggleDateSelection(dateStr, shiftKey, key);
+    return;
+  }
+  if (infoEditMode) {
+    if (!hasShift) return;
+    evt.stopPropagation();
+    applyInfoEditSelectionToCell(dateStr, shiftKey, key);
     return;
   }
   if (!hasShift) return;
@@ -1096,6 +1112,10 @@ function toggleDateEditMode() {
   if (dateEditMode && countPendingDateChanges() > 0) {
     if (!confirm('저장하지 않은 날짜 변경사항이 있습니다. 취소하고 나가시겠습니까?')) return;
   }
+  if (!dateEditMode && infoEditMode) {
+    if (countPendingInfoChanges() > 0 && !confirm('배치정보 수정 모드를 종료하고 신청날짜 수정 모드로 전환합니다. 미저장 배치정보 변경사항이 취소됩니다. 계속할까요?')) return;
+    cancelInfoEditChanges();
+  }
   pendingDateChanges = {};
   document.querySelectorAll('.date-pending-on, .date-pending-off, .rowhead-pending').forEach(el => el.classList.remove('date-pending-on', 'date-pending-off', 'rowhead-pending'));
   dateEditMode = !dateEditMode;
@@ -1150,6 +1170,218 @@ function saveDateEditChanges() {
       .adminUpdateShifts(key, buildNewShifts(key), adminPassword);
   }
   runNext(0);
+}
+
+// ---------- compact 표에서 배치정보(층/교육/신규/여임금) 일괄 수정(모드) ----------
+let infoEditMode = false;
+let pendingInfoChanges = {}; // { [key]: { [dateStr]: { [shiftKey]: {floor, isEducation, isNew, isWomenWage} } } }
+let infoEditSelection = { floor: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
+
+function buildInfoEditToolbar() {
+  const floorBtns = ['', ...FLOORS].map(f =>
+    `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '지우기'}</button>`
+  ).join('');
+  return `<div class="date-edit-toolbar">
+    <button id="infoEditToggleBtn" onclick="toggleInfoEditMode()">🏢 배치정보 수정</button>
+    <span id="infoEditStatus"></span>
+    <button id="infoEditSaveBtn" style="display:none;" onclick="saveInfoEditChanges()">✅ 변경사항 저장 (<span id="infoEditCount">0</span>건)</button>
+    <button id="infoEditCancelBtn" style="display:none;" onclick="cancelInfoEditChanges()">취소</button>
+  </div>
+  <div id="infoEditOptions" class="info-edit-options" style="display:none;">
+    <span class="info-edit-options-label">적용할 값:</span>
+    <div class="info-edit-floor-row">${floorBtns}</div>
+    <div class="info-edit-flag-row">
+      <label><input type="checkbox" id="infoEditEduCb" onchange="setInfoEditFlag('isEducation', this.checked)"> 교육</label>
+      <label><input type="checkbox" id="infoEditNewCb" onchange="setInfoEditFlag('isNew', this.checked)"> 신규</label>
+      <label><input type="checkbox" id="infoEditWageCb" onchange="setInfoEditFlag('isWomenWage', this.checked)"> 여임금</label>
+    </div>
+  </div>`;
+}
+
+function setInfoEditFloor(f) {
+  infoEditSelection.floor = f;
+  document.querySelectorAll('.info-edit-floor-btn').forEach(b => b.classList.toggle('selected', b.dataset.floor === f));
+}
+
+function setInfoEditFlag(flag, checked) {
+  infoEditSelection[flag] = checked;
+}
+
+// 수정모드에서 배치된 칸을 클릭하면 툴바에서 골라둔 값을 즉시 반영(대기)하고,
+// 이미 그 값이 적용돼 있는 칸을 다시 클릭하면 원래 값으로 되돌린다(신청날짜 토글과 동일한 방식)
+function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
+  const target = {
+    floor: infoEditSelection.floor,
+    isEducation: infoEditSelection.isEducation,
+    isNew: infoEditSelection.isNew,
+    isWomenWage: infoEditSelection.isWomenWage
+  };
+  const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+  const original = { floor: asg ? asg.floor : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+  const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
+  const current = pending || original;
+  const alreadyApplied = current.floor === target.floor && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage;
+
+  setPendingInfo(dateStr, shiftKey, key, alreadyApplied ? original : target);
+}
+
+function setPendingInfo(dateStr, shiftKey, key, values) {
+  const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+  const original = { floor: asg ? asg.floor : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+  const same = values.floor === original.floor && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage;
+
+  if (!pendingInfoChanges[key]) pendingInfoChanges[key] = {};
+  if (same) {
+    if (pendingInfoChanges[key][dateStr]) {
+      delete pendingInfoChanges[key][dateStr][shiftKey];
+      if (Object.keys(pendingInfoChanges[key][dateStr]).length === 0) delete pendingInfoChanges[key][dateStr];
+    }
+    if (Object.keys(pendingInfoChanges[key]).length === 0) delete pendingInfoChanges[key];
+  } else {
+    if (!pendingInfoChanges[key][dateStr]) pendingInfoChanges[key][dateStr] = {};
+    pendingInfoChanges[key][dateStr][shiftKey] = values;
+  }
+
+  applyInfoCellPendingStyle(dateStr, shiftKey, key);
+  applyInfoNameHighlight(key);
+  syncInfoEditToolbar();
+}
+
+function applyInfoCellPendingStyle(dateStr, shiftKey, key) {
+  const cell = document.getElementById('dcell_' + shiftKey + '_' + dateStr + '_' + key);
+  if (!cell) return;
+  const wchar = cell.dataset.wchar || '';
+  const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
+  if (pending) {
+    cell.classList.add('info-pending');
+    cell.innerHTML = renderFloorMark(wchar, pending.floor);
+  } else {
+    cell.classList.remove('info-pending');
+    const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '');
+  }
+}
+
+function applyInfoNameHighlight(key) {
+  const hasChanges = !!(pendingInfoChanges[key] && Object.keys(pendingInfoChanges[key]).length > 0);
+  document.querySelectorAll('td.rowhead[data-key="' + key + '"]').forEach(el => el.classList.toggle('infohead-pending', hasChanges));
+}
+
+// 표를 다시 그린 뒤(위치 필터 전환 등)에도 미저장 배치정보 변경 표시를 복원
+function applyPendingInfoCellStyles() {
+  Object.keys(pendingInfoChanges).forEach(key => {
+    Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
+      Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => {
+        applyInfoCellPendingStyle(dateStr, shiftKey, key);
+      });
+    });
+    applyInfoNameHighlight(key);
+  });
+}
+
+function countPendingInfoChanges() {
+  let count = 0;
+  Object.values(pendingInfoChanges).forEach(byDate => {
+    Object.values(byDate).forEach(byShift => { count += Object.keys(byShift).length; });
+  });
+  return count;
+}
+
+function syncInfoEditToolbar() {
+  const btn = document.getElementById('infoEditToggleBtn');
+  if (!btn) return;
+  const saveBtn = document.getElementById('infoEditSaveBtn');
+  const cancelBtn = document.getElementById('infoEditCancelBtn');
+  const countEl = document.getElementById('infoEditCount');
+  const statusEl = document.getElementById('infoEditStatus');
+  const optionsEl = document.getElementById('infoEditOptions');
+  const count = countPendingInfoChanges();
+
+  btn.textContent = infoEditMode ? '❌ 배치정보 수정 종료' : '🏢 배치정보 수정';
+  btn.classList.toggle('on', infoEditMode);
+  saveBtn.style.display = infoEditMode ? 'inline-block' : 'none';
+  cancelBtn.style.display = infoEditMode ? 'inline-block' : 'none';
+  saveBtn.disabled = count === 0;
+  countEl.textContent = count;
+  statusEl.textContent = !infoEditMode ? ''
+    : (count > 0 ? count + '건 변경 대기중 — 칸을 더 클릭하거나 저장하세요.' : '수정할 배치 칸을 클릭하세요.');
+
+  if (optionsEl) {
+    optionsEl.style.display = infoEditMode ? 'flex' : 'none';
+    optionsEl.querySelectorAll('.info-edit-floor-btn').forEach(b => b.classList.toggle('selected', b.dataset.floor === infoEditSelection.floor));
+    const eduCb = document.getElementById('infoEditEduCb'); if (eduCb) eduCb.checked = infoEditSelection.isEducation;
+    const newCb = document.getElementById('infoEditNewCb'); if (newCb) newCb.checked = infoEditSelection.isNew;
+    const wageCb = document.getElementById('infoEditWageCb'); if (wageCb) wageCb.checked = infoEditSelection.isWomenWage;
+  }
+}
+
+// pendingInfoChanges를 비우고 화면(셀 표시/강조)을 원래대로 되돌린다
+function clearPendingInfoChanges_() {
+  const affected = [];
+  Object.keys(pendingInfoChanges).forEach(key => {
+    Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
+      Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => affected.push([key, dateStr, shiftKey]));
+    });
+  });
+  pendingInfoChanges = {};
+  affected.forEach(([key, dateStr, shiftKey]) => applyInfoCellPendingStyle(dateStr, shiftKey, key));
+  Array.from(new Set(affected.map(a => a[0]))).forEach(key => applyInfoNameHighlight(key));
+}
+
+function toggleInfoEditMode() {
+  if (infoEditMode && countPendingInfoChanges() > 0) {
+    if (!confirm('저장하지 않은 배치정보 변경사항이 있습니다. 취소하고 나가시겠습니까?')) return;
+  }
+  if (!infoEditMode && dateEditMode) {
+    if (countPendingDateChanges() > 0 && !confirm('신청날짜 수정 모드를 종료하고 배치정보 수정 모드로 전환합니다. 미저장 날짜 변경사항이 취소됩니다. 계속할까요?')) return;
+    cancelDateEditChanges();
+  }
+  clearPendingInfoChanges_();
+  infoEditMode = !infoEditMode;
+  if (infoEditMode) infoEditSelection = { floor: '', isEducation: false, isNew: false, isWomenWage: false };
+  document.body.classList.toggle('info-edit-mode', infoEditMode);
+  syncInfoEditToolbar();
+}
+
+function cancelInfoEditChanges() {
+  clearPendingInfoChanges_();
+  infoEditMode = false;
+  document.body.classList.remove('info-edit-mode');
+  syncInfoEditToolbar();
+}
+
+// 근로자/날짜/시프트별 배치정보 변경사항을 한 번의 batchSaveAssignments 호출로 저장
+function saveInfoEditChanges() {
+  const list = [];
+  Object.keys(pendingInfoChanges).forEach(key => {
+    const rec = lastRecords.find(r => r.key === key);
+    const gender = (rec && (rec.adminGender || rec.gender)) || '남';
+    const name = rec ? rec.name : '';
+    Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
+      Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => {
+        const v = pendingInfoChanges[key][dateStr][shiftKey];
+        list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
+      });
+    });
+  });
+  if (list.length === 0) return;
+
+  const statusEl = document.getElementById('infoEditStatus');
+  const saveBtn = document.getElementById('infoEditSaveBtn');
+  saveBtn.disabled = true;
+  statusEl.textContent = '저장 중...';
+  google.script.run
+    .withSuccessHandler(function() {
+      pendingInfoChanges = {};
+      infoEditMode = false;
+      document.body.classList.remove('info-edit-mode');
+      loadAdmin();
+    })
+    .withFailureHandler(function(err) {
+      statusEl.textContent = '저장 오류: ' + err.message;
+      saveBtn.disabled = false;
+    })
+    .batchSaveAssignments(list, adminPassword);
 }
 
 function reorderWorker(keyA, keyB) {
@@ -2026,6 +2258,7 @@ function renderAdmin(records, assignments, targets) {
   html += buildGenderFixPanel(filteredRecords);
   const locationLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += buildDateEditToolbar();
+  html += buildInfoEditToolbar();
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
   if (filteredRecords.length === 0) {
@@ -2049,6 +2282,8 @@ function renderAdmin(records, assignments, targets) {
   addScrollArrows(content);
   syncDateEditToolbar();
   applyPendingCellStyles();
+  syncInfoEditToolbar();
+  applyPendingInfoCellStyles();
 }
 renderLocationCheckboxes([]);
 renderGenderRadios('');
