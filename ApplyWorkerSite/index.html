@@ -59,6 +59,16 @@
   tr.gender-divider td { background: #f0f2f5; font-weight: 700; font-size: 11px; color: #1a56db; }
   .floor-clickable { cursor: pointer; }
   .worker-name-click { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+  .date-edit-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; padding: 8px 10px; background: #f7f8fa; border-radius: 8px; }
+  .date-edit-toolbar button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: white; font-size: 12px; cursor: pointer; }
+  .date-edit-toolbar button.on { background: #2f6fed; color: white; border-color: #2f6fed; }
+  .date-edit-toolbar #dateEditStatus { font-size: 12px; color: #555; }
+  .date-cell { cursor: default; }
+  body.date-edit-mode .date-cell { cursor: pointer; }
+  body.date-edit-mode .date-cell:hover { outline: 2px solid #2f6fed; outline-offset: -2px; }
+  td.date-pending-on { background: #d7f5da !important; }
+  td.date-pending-off { background: #fddede !important; text-decoration: line-through; }
+  td.rowhead.rowhead-pending { background: #fff3cd !important; }
   .mark-circle { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #e53e3e; border-radius: 50%; }
   .mark-square { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #1a1a1a; }
   .mark-triangle-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
@@ -813,16 +823,17 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
         <select id="${selId}" style="font-size:10px; padding:1px; margin-left:2px;"><option value="">-</option><option value="남">남</option><option value="여">여</option></select>
         <button style="font-size:9px; padding:1px 4px; border-radius:4px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveAdminGender('${r.key}','${selId}')">저장</button>`;
     }
-    let rowHtml = `<tr><td class="rowhead">${nameCell}</td>`;
+    let rowHtml = `<tr><td class="rowhead" data-key="${r.key}">${nameCell}</td>`;
     weekDatesStr.forEach((dateStr, i) => {
       const found = r.shifts.find(s => s.date === dateStr && s[shiftKey]);
+      const cellId = 'dcell_' + shiftKey + '_' + dateStr + '_' + r.key;
       if (!found) {
-        rowHtml += '<td>-</td>';
+        rowHtml += `<td id="${cellId}" class="date-cell" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',false)">-</td>`;
         return;
       }
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
-      rowHtml += `<td class="floor-clickable" onclick="showFloorMenu(event,'${dateStr}','${shiftKey}','${r.key}')">${renderFloorMark(WEEKDAY_LABELS[i], floor)}</td>`;
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -965,6 +976,167 @@ function buildWorkerWeekPair(weekDates, records, locationLabel, assignments) {
   html += `<div class="side-by-side-col">${buildWorkerWeekShiftTable(weekDates, 'night', '야간', records, locationLabel, true, assignments)}</div>`;
   html += '</div>';
   return html;
+}
+
+// ---------- compact 표에서 신청 날짜 일괄 수정(모드) ----------
+let dateEditMode = false;
+let pendingDateChanges = {}; // { [key]: { [dateStr]: { day?: bool, night?: bool } } }
+
+function buildDateEditToolbar() {
+  return `<div class="date-edit-toolbar">
+    <button id="dateEditToggleBtn" onclick="toggleDateEditMode()">📅 신청날짜 수정</button>
+    <span id="dateEditStatus"></span>
+    <button id="dateEditSaveBtn" style="display:none;" onclick="saveDateEditChanges()">✅ 변경사항 저장 (<span id="dateEditCount">0</span>건)</button>
+    <button id="dateEditCancelBtn" style="display:none;" onclick="cancelDateEditChanges()">취소</button>
+  </div>`;
+}
+
+// compact 표의 날짜 칸 클릭: 수정모드면 신청 여부 토글, 아니면 기존처럼 층 배치 팝업
+function handleDateCellClick(evt, dateStr, shiftKey, key, hasShift) {
+  if (dateEditMode) {
+    evt.stopPropagation();
+    toggleDateSelection(dateStr, shiftKey, key);
+    return;
+  }
+  if (!hasShift) return;
+  showFloorMenu(evt, dateStr, shiftKey, key);
+}
+
+function toggleDateSelection(dateStr, shiftKey, key) {
+  const rec = lastRecords.find(r => r.key === key);
+  const original = !!(rec && (rec.shifts || []).find(s => s.date === dateStr && s[shiftKey]));
+  if (!pendingDateChanges[key]) pendingDateChanges[key] = {};
+  if (!pendingDateChanges[key][dateStr]) pendingDateChanges[key][dateStr] = {};
+  const entry = pendingDateChanges[key][dateStr];
+  const current = (entry[shiftKey] === undefined) ? original : entry[shiftKey];
+  const next = !current;
+
+  // 원래 값으로 되돌아오면 변경 목록에서 제거(정확한 미저장 건수 유지)
+  if (next === original) {
+    delete entry[shiftKey];
+    if (Object.keys(entry).length === 0) delete pendingDateChanges[key][dateStr];
+    if (Object.keys(pendingDateChanges[key]).length === 0) delete pendingDateChanges[key];
+  } else {
+    entry[shiftKey] = next;
+  }
+
+  applyCellPendingStyle(dateStr, shiftKey, key);
+  applyNameHighlight(key);
+  syncDateEditToolbar();
+}
+
+function applyCellPendingStyle(dateStr, shiftKey, key) {
+  const cell = document.getElementById('dcell_' + shiftKey + '_' + dateStr + '_' + key);
+  if (!cell) return;
+  cell.classList.remove('date-pending-on', 'date-pending-off');
+  const pending = pendingDateChanges[key] && pendingDateChanges[key][dateStr] && pendingDateChanges[key][dateStr][shiftKey];
+  if (pending === true) cell.classList.add('date-pending-on');
+  else if (pending === false) cell.classList.add('date-pending-off');
+}
+
+// 해당 근로자의 이름 칸(1/2주차 · 주간/야간 표에 각각 나타남) 바탕색을 변경 대기 여부에 맞춰 갱신
+function applyNameHighlight(key) {
+  const hasChanges = !!(pendingDateChanges[key] && Object.keys(pendingDateChanges[key]).length > 0);
+  document.querySelectorAll('td.rowhead[data-key="' + key + '"]').forEach(el => el.classList.toggle('rowhead-pending', hasChanges));
+}
+
+// 표를 다시 그린 뒤(위치 필터 전환 등)에도 미저장 변경 표시를 복원
+function applyPendingCellStyles() {
+  Object.keys(pendingDateChanges).forEach(key => {
+    Object.keys(pendingDateChanges[key]).forEach(dateStr => {
+      Object.keys(pendingDateChanges[key][dateStr]).forEach(shiftKey => {
+        applyCellPendingStyle(dateStr, shiftKey, key);
+      });
+    });
+    applyNameHighlight(key);
+  });
+}
+
+function countPendingDateChanges() {
+  let count = 0;
+  Object.values(pendingDateChanges).forEach(byDate => {
+    Object.values(byDate).forEach(byShift => { count += Object.keys(byShift).length; });
+  });
+  return count;
+}
+
+function syncDateEditToolbar() {
+  const btn = document.getElementById('dateEditToggleBtn');
+  if (!btn) return;
+  const saveBtn = document.getElementById('dateEditSaveBtn');
+  const cancelBtn = document.getElementById('dateEditCancelBtn');
+  const countEl = document.getElementById('dateEditCount');
+  const statusEl = document.getElementById('dateEditStatus');
+  const count = countPendingDateChanges();
+
+  btn.textContent = dateEditMode ? '❌ 신청날짜 수정 종료' : '📅 신청날짜 수정';
+  btn.classList.toggle('on', dateEditMode);
+  saveBtn.style.display = dateEditMode ? 'inline-block' : 'none';
+  cancelBtn.style.display = dateEditMode ? 'inline-block' : 'none';
+  saveBtn.disabled = count === 0;
+  countEl.textContent = count;
+  statusEl.textContent = !dateEditMode ? ''
+    : (count > 0 ? count + '건 변경 대기중 — 날짜 칸을 더 클릭하거나 저장하세요.' : '변경할 날짜 칸을 클릭하세요 (신청 안 된 날짜도 클릭해서 추가 가능).');
+}
+
+function toggleDateEditMode() {
+  if (dateEditMode && countPendingDateChanges() > 0) {
+    if (!confirm('저장하지 않은 날짜 변경사항이 있습니다. 취소하고 나가시겠습니까?')) return;
+  }
+  pendingDateChanges = {};
+  document.querySelectorAll('.date-pending-on, .date-pending-off, .rowhead-pending').forEach(el => el.classList.remove('date-pending-on', 'date-pending-off', 'rowhead-pending'));
+  dateEditMode = !dateEditMode;
+  document.body.classList.toggle('date-edit-mode', dateEditMode);
+  syncDateEditToolbar();
+}
+
+function cancelDateEditChanges() {
+  pendingDateChanges = {};
+  document.querySelectorAll('.date-pending-on, .date-pending-off, .rowhead-pending').forEach(el => el.classList.remove('date-pending-on', 'date-pending-off', 'rowhead-pending'));
+  dateEditMode = false;
+  document.body.classList.remove('date-edit-mode');
+  syncDateEditToolbar();
+}
+
+// 근로자별로 신청 날짜 배열을 새로 구성해 adminUpdateShifts를 한 번씩 호출(변경된 근로자 수만큼)
+function saveDateEditChanges() {
+  const keys = Object.keys(pendingDateChanges);
+  if (keys.length === 0) return;
+  const statusEl = document.getElementById('dateEditStatus');
+  const saveBtn = document.getElementById('dateEditSaveBtn');
+  saveBtn.disabled = true;
+  statusEl.textContent = '저장 중...';
+
+  function buildNewShifts(key) {
+    const rec = lastRecords.find(r => r.key === key);
+    const map = {};
+    (rec ? rec.shifts || [] : []).forEach(s => { map[s.date] = { day: !!s.day, night: !!s.night }; });
+    Object.entries(pendingDateChanges[key]).forEach(([dateStr, changes]) => {
+      if (!map[dateStr]) map[dateStr] = { day: false, night: false };
+      if (changes.day !== undefined) map[dateStr].day = changes.day;
+      if (changes.night !== undefined) map[dateStr].night = changes.night;
+    });
+    return Object.entries(map).filter(([, v]) => v.day || v.night).map(([date, v]) => ({ date, day: v.day, night: v.night }));
+  }
+
+  function runNext(idx) {
+    if (idx >= keys.length) {
+      pendingDateChanges = {};
+      dateEditMode = false;
+      document.body.classList.remove('date-edit-mode');
+      loadAdmin();
+      return;
+    }
+    const key = keys[idx];
+    google.script.run
+      .withSuccessHandler(function() { runNext(idx + 1); })
+      .withFailureHandler(function(err) {
+        statusEl.textContent = '저장 오류: ' + err.message;
+        saveBtn.disabled = false;
+      })
+      .adminUpdateShifts(key, buildNewShifts(key), adminPassword);
+  }
+  runNext(0);
 }
 
 function reorderWorker(keyA, keyB) {
@@ -1817,6 +1989,7 @@ function renderAdmin(records, assignments, targets) {
   let html = buildLocationTabs();
   html += buildGenderFixPanel(filteredRecords);
   const locationLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
+  html += buildDateEditToolbar();
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
   if (filteredRecords.length === 0) {
@@ -1838,6 +2011,8 @@ function renderAdmin(records, assignments, targets) {
 
   content.innerHTML = html;
   addScrollArrows(content);
+  syncDateEditToolbar();
+  applyPendingCellStyles();
 }
 renderLocationCheckboxes([]);
 renderGenderRadios('');
