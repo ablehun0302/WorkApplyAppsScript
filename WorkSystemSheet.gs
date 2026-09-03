@@ -211,7 +211,7 @@ function getDataSheet_() {
   let sheet = ss.getSheetByName('Data');
   if (!sheet) {
     sheet = ss.insertSheet('Data');
-    sheet.appendRow(['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender']);
+    sheet.appendRow(['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
     cleanupDefaultSheets_(ss);
   }
   sheet.getRange('D:D').setNumberFormat('@'); // pin 앞자리 0 유실 방지 (기존 시트에도 매번 적용)
@@ -278,8 +278,8 @@ function lookupRecord(name, pin) {
   const key = makeKey_(name, pin);
   const row = findRow_(sheet, 0, key);
   if (row === -1) return null;
-  const v = sheet.getRange(row, 1, 1, 11).getValues()[0];
-  return { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '' };
+  const v = sheet.getRange(row, 1, 1, 12).getValues()[0];
+  return { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
 }
 
 // 여러 명의 근무자를 한 번에 일괄 등록 (관리자 추가 화면에서 사용)
@@ -301,17 +301,19 @@ function batchSaveRecords(list, adminPw) {
       const row = keyToRow[key];
       let existingAdminLocation = '';
       let existingAdminGender = '';
+      let existingAdConsent = '';
       if (row) {
         existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
         existingAdminGender = sheet.getRange(row, 11).getValue() || '';
+        existingAdConsent = sheet.getRange(row, 12).getValue() || '';
       }
       const rowData = [
         key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
         JSON.stringify(item.shifts || []), JSON.stringify(item.locations || []),
-        existingAdminLocation, '', item.gender || '', existingAdminGender
+        existingAdminLocation, '', item.gender || '', existingAdminGender, existingAdConsent
       ];
       if (row) {
-        sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+        sheet.getRange(row, 1, 1, 12).setValues([rowData]);
       } else if (pendingNewIndexByKey.hasOwnProperty(key)) {
         newRows[pendingNewIndexByKey[key]] = rowData;
       } else {
@@ -322,7 +324,7 @@ function batchSaveRecords(list, adminPw) {
 
     // 새로 추가되는 사람은 한 번에 묶어서 기록 (건별 appendRow보다 훨씬 빠름)
     if (newRows.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 11).setValues(newRows);
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 12).setValues(newRows);
     }
   } finally {
     lock.releaseLock();
@@ -332,7 +334,7 @@ function batchSaveRecords(list, adminPw) {
   return true;
 }
 
-function saveRecord(name, pin, phone, shifts, locations, message, gender) {
+function saveRecord(name, pin, phone, shifts, locations, message, gender, adConsent) {
   // 동시에 두 요청이 들어오면 둘 다 "기존 행 없음"으로 보고 동일 key로 각각 appendRow 하여
   // 중복 행이 생길 수 있어(findRow_는 항상 첫 번째 매칭 행만 찾으므로 이후 수정은 그 중 하나만 반영됨),
   // 찾기~쓰기 구간을 잠가 원자적으로 만든다.
@@ -349,10 +351,10 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender) {
       existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
       existingAdminGender = sheet.getRange(row, 11).getValue() || '';
     }
-    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(shifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender];
+    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(shifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
     console.log("pin: %s, phone: %s", pin, phone);
     if (row === -1) sheet.appendRow(rowData);
-    else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+    else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
   } finally {
     lock.releaseLock();
   }
@@ -564,6 +566,7 @@ function getAdminData(adminPw) {
       message: data[i][8] || '',
       gender: data[i][9] || '',
       adminGender: data[i][10] || '',
+      adConsent: data[i][11] || '',
       sortOrder: orderByKey[data[i][0]] || 0
     });
   }
