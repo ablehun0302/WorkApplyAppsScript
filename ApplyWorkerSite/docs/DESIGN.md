@@ -36,7 +36,7 @@ Google Apps Script 기반 웹앱으로, 서버 로직(`Code.gs` + `SheetData.gs`
 
 비밀번호(`Code.gs`에 평문 하드코딩) 입력 후 두 서브뷰:
 1. **배치판**: 장소 탭별 필터링, 주차별 표(근로자×요일, 층별 마크 아이콘), 목표인원 대비 현재 배치, 미배치자 칩에서 성별/층/교육/신규/여성임금 지정 후 개별·일괄 배치, 텍스트 미리보기 복사(문자 발송용 포맷).
-2. **전체신청자 목록**: 보건증 만료일/입사일 편집, 월별 근로일수 자동+수동 합산, 연속근무개월수, 체크박스 선택 후 `sms:` 스킴으로 문자 앱 실행(웹 기반 문자 API 없이 OS 문자 앱을 열어주는 방식).
+2. **전체신청자 목록**: 보건증 만료일/입사일 편집, 월별 근로일수 자동+수동 합산, 연속근무개월수, 체크박스 선택 후 SOLAPI API로 서버에서 직접 문자 발송(`Sms.gs`).
 
 성별 미지정자 일괄 지정 패널, 순서 바꾸기(▲▼), 관리자가 이름/연락처/PIN으로 근로자를 직접 추가하는 오버레이(자동완성 + 30초 자동저장), 5분마다 화면의 미저장 변경사항을 자동 저장하는 타이머도 있습니다.
 
@@ -64,6 +64,18 @@ Google Apps Script 기반 웹앱으로, 서버 로직(`Code.gs` + `SheetData.gs`
 이 중 **1번(관리자 함수 미인증 접근)**과 **2번(개인정보 평문 노출)**은 실제 서비스 중이라면 가장 먼저 손봐야 할 부분입니다.
 
 ## 변경 이력
+
+### 2026-09-03(3): 발송 완료 건수가 항상 0으로 표시되는 버그 수정
+
+`sendSms`가 `count.sentSuccess`/`count.sentFailed`를 읽고 있었는데, 이 값은 통신사 발송이 실제로 완료된 뒤(비동기) 채워지는 값이라 `send-many/detail` 호출 직후 응답에는 항상 0이다(SOLAPI PHP 공식 SDK 소스 확인 — SDK 자체도 성공/실패 판단에 `sentSuccess`가 아니라 `registeredFailed`/`total`을 씀). 호출 직후 즉시 알 수 있는 값은 SOLAPI 접수 결과인 `registeredSuccess`/`registeredFailed`이므로 이 필드로 교체했다.
+
+### 2026-09-03(2): 광고성 메시지 여부 · 발신번호 지정 기능 추가
+
+SOLAPI API는 메시지 객체에 "광고 여부"를 넘기는 필드가 없다(공식 SDK 모델 기준 확인). 따라서 문자 패널에 "광고성 메시지" 체크박스를 추가하고, 체크 시 `applyAdvertisingNotice_()`가 본문에 `(광고)` 접두어와 `무료수신거부 [SOLAPI_OPT_OUT_NUMBER]` 안내를 자동으로 붙이도록 `Sms.gs`를 수정했다(정보통신망법 요건 충족용, 080 수신거부 번호는 발신번호와 별도로 Script Properties에 저장). 또한 발신번호 입력란을 추가해 매 발송마다 원하는 번호를 지정할 수 있도록 했고, 비워두면 기존처럼 `SOLAPI_SENDER` 기본값을 사용한다. `sendSms` 시그니처가 `(phoneList, message, isAdvertising, senderOverride, adminPw)`로 변경됨.
+
+### 2026-09-03: 문자 발송을 SOLAPI API 직접 호출로 전환
+
+기존 "전체신청자 목록"의 문자 발송(개별 `sendSingleSms`, 일괄 `sendBulkSms`)은 `window.open('sms:...')`로 OS 문자 앱을 열어주는 방식이었다. 이를 `Sms.gs`(신규)의 `sendSms(phoneList, message, adminPw)` 서버 함수로 교체해, `SendMessageSite` 프로젝트에서 설계했던 것과 동일한 SOLAPI HMAC-SHA256 인증 방식으로 서버에서 직접 발송하도록 변경했다. Script Properties에 `SOLAPI_API_KEY` / `SOLAPI_API_SECRET` / `SOLAPI_SENDER`를 설정해야 동작한다. 클라이언트는 발송 전 `confirm()`으로 재확인하고, 결과로 성공/실패 건수를 표시한다.
 
 ### 2026-08-21
 
