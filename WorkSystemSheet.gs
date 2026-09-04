@@ -96,6 +96,46 @@ function removeHistory_(key, date) {
   if (row > -1) sheet.deleteRow(row);
 }
 
+// 근로자 신청 화면(getTwoWeekDates, index.html)과 동일한 규칙(이번 주 월요일부터 14일)의
+// 날짜 집합을 서버에서 계산한다. 이 창 밖의 날짜는 애초에 화면에 보이지 않으므로 신청 수정 시
+// shifts에 안 들어있어도 "취소"가 아니라 단순히 편집 대상이 아니었던 것으로 봐야 한다.
+function getCurrentTwoWeekDateSet_() {
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const dayOfWeek = Number(Utilities.formatDate(now, tz, 'u')); // 1=월 ... 7=일
+  const start = new Date(now);
+  start.setDate(start.getDate() - (dayOfWeek - 1));
+  const set = new Set();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    set.add(Utilities.formatDate(d, tz, 'yyyy-MM-dd'));
+  }
+  return set;
+}
+
+// 근로자 신청 수정/취소로 사라진 (날짜,시프트) 중, 실제로 화면에 보였던(=이번 주~다음 주)
+// 날짜에 한해서만 Assign/History에서 제거한다.
+// oldShifts/newShifts: [{date, day, night}, ...] (전체 취소 시 newShifts는 빈 배열)
+function removeCanceledAssignments_(key, oldShifts, newShifts) {
+  const currentWindow = getCurrentTwoWeekDateSet_();
+  const newMap = {};
+  (newShifts || []).forEach(s => { newMap[s.date] = s; });
+  const asheet = getAssignSheet_();
+  (oldShifts || []).forEach(old => {
+    if (!currentWindow.has(old.date)) return; // 화면에 안 보이는(지난 주 이전) 날짜는 취소로 보지 않는다
+    const cur = newMap[old.date] || {};
+    ['day', 'night'].forEach(shift => {
+      if (!old[shift] || cur[shift]) return;
+      const row = findRow_(asheet, 0, makeAssignKey_(old.date, shift, key));
+      if (row > -1) asheet.deleteRow(row);
+      const otherShift = shift === 'day' ? 'night' : 'day';
+      const stillHas = findRow_(asheet, 0, makeAssignKey_(old.date, otherShift, key)) > -1;
+      if (!stillHas) removeHistory_(key, old.date);
+    });
+  });
+}
+
 function getPastMonthlySheet_() {
   const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName('PastMonthly');
@@ -340,9 +380,10 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   // 찾기~쓰기 구간을 잠가 원자적으로 만든다.
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
+  const key = makeKey_(name, pin);
+  let oldShifts = [];
   try {
     const sheet = getDataSheet_();
-    const key = makeKey_(name, pin);
     const row = findRow_(sheet, 0, key);
     const now = new Date().toISOString();
     let existingAdminLocation = '';
@@ -350,6 +391,7 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
     if (row !== -1) {
       existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
       existingAdminGender = sheet.getRange(row, 11).getValue() || '';
+      oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
     }
     const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(shifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
     console.log("pin: %s, phone: %s", pin, phone);
@@ -358,6 +400,8 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   } finally {
     lock.releaseLock();
   }
+  // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
+  removeCanceledAssignments_(key, oldShifts, shifts);
   rebuildLocationSheets_();
   return true;
 }
@@ -531,12 +575,13 @@ function deleteRecord(name, pin) {
   const sheet = getDataSheet_();
   const key = makeKey_(name, pin);
   const row = findRow_(sheet, 0, key);
-  if (row > -1) sheet.deleteRow(row);
-  const asheet = getAssignSheet_();
-  const adata = asheet.getDataRange().getValues();
-  for (let i = adata.length - 1; i >= 1; i--) {
-    if (adata[i][3] === key) asheet.deleteRow(i + 1);
+  let oldShifts = [];
+  if (row > -1) {
+    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
+    sheet.deleteRow(row);
   }
+  // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하고, 그 외 이력은 보존한다.
+  removeCanceledAssignments_(key, oldShifts, []);
   rebuildLocationSheets_();
   return true;
 }
