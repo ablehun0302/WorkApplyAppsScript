@@ -38,34 +38,46 @@ function getRosterData(adminPw) {
 
 function saveRosterEntry(key, healthCertExpiry, hireDate, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getRosterSheet_();
-  const row = findRow_(sheet, 0, key);
-  let existingOrder = 0;
-  if (row !== -1) existingOrder = Number(sheet.getRange(row, 4).getValue()) || 0;
-  const rowData = [key, healthCertExpiry || '', hireDate || '', existingOrder];
-  if (row === -1) sheet.appendRow(rowData);
-  else sheet.getRange(row, 1, 1, 4).setValues([rowData]);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getRosterSheet_();
+    const row = findRow_(sheet, 0, key);
+    let existingOrder = 0;
+    if (row !== -1) existingOrder = Number(sheet.getRange(row, 4).getValue()) || 0;
+    const rowData = [key, healthCertExpiry || '', hireDate || '', existingOrder];
+    if (row === -1) sheet.appendRow(rowData);
+    else sheet.getRange(row, 1, 1, 4).setValues([rowData]);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
 // 이름 순서 맞바꾸기 (관리자가 근로자별 신청현황에서 위/아래로 이동)
 function swapSortOrder(keyA, keyB, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getRosterSheet_();
-  function getOrCreateRow(key) {
-    let row = findRow_(sheet, 0, key);
-    if (row === -1) {
-      sheet.appendRow([key, '', '', 0]);
-      row = sheet.getLastRow();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getRosterSheet_();
+    function getOrCreateRow(key) {
+      let row = findRow_(sheet, 0, key);
+      if (row === -1) {
+        sheet.appendRow([key, '', '', 0]);
+        row = sheet.getLastRow();
+      }
+      return row;
     }
-    return row;
+    const rowA = getOrCreateRow(keyA);
+    const rowB = getOrCreateRow(keyB);
+    const orderA = Number(sheet.getRange(rowA, 4).getValue()) || 0;
+    const orderB = Number(sheet.getRange(rowB, 4).getValue()) || 0;
+    sheet.getRange(rowA, 4).setValue(orderB);
+    sheet.getRange(rowB, 4).setValue(orderA);
+  } finally {
+    lock.releaseLock();
   }
-  const rowA = getOrCreateRow(keyA);
-  const rowB = getOrCreateRow(keyB);
-  const orderA = Number(sheet.getRange(rowA, 4).getValue()) || 0;
-  const orderB = Number(sheet.getRange(rowB, 4).getValue()) || 0;
-  sheet.getRange(rowA, 4).setValue(orderB);
-  sheet.getRange(rowB, 4).setValue(orderA);
   return true;
 }
 
@@ -161,12 +173,18 @@ function getPastMonthlyEntries(key, adminPw) {
 
 function savePastMonthly(key, yearMonth, days, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getPastMonthlySheet_();
-  const pmKey = key + '_' + yearMonth;
-  const row = findRow_(sheet, 0, pmKey);
-  const rowData = [pmKey, key, yearMonth, Number(days) || 0];
-  if (row === -1) sheet.appendRow(rowData);
-  else sheet.getRange(row, 1, 1, 4).setValues([rowData]);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getPastMonthlySheet_();
+    const pmKey = key + '_' + yearMonth;
+    const row = findRow_(sheet, 0, pmKey);
+    const rowData = [pmKey, key, yearMonth, Number(days) || 0];
+    if (row === -1) sheet.appendRow(rowData);
+    else sheet.getRange(row, 1, 1, 4).setValues([rowData]);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
@@ -455,43 +473,55 @@ function batchSetLocations(list, adminPw) {
 // 여러 날짜/시간대의 목표 인원을 한 번에 일괄 저장
 function batchSaveTargets(list, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getTargetSheet_();
-  const data = sheet.getDataRange().getValues();
-  const keyToRow = {};
-  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
-  list.forEach(item => {
-    const targetKey = makeTargetKey_(item.date, item.shift);
-    const rowData = [targetKey, item.date, item.shift, Number(item.maleTarget) || 0, Number(item.femaleTarget) || 0];
-    const row = keyToRow[targetKey];
-    if (!row) {
-      sheet.appendRow(rowData);
-      keyToRow[targetKey] = sheet.getLastRow();
-    } else {
-      sheet.getRange(row, 1, 1, 5).setValues([rowData]);
-    }
-  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getTargetSheet_();
+    const data = sheet.getDataRange().getValues();
+    const keyToRow = {};
+    for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+    list.forEach(item => {
+      const targetKey = makeTargetKey_(item.date, item.shift);
+      const rowData = [targetKey, item.date, item.shift, Number(item.maleTarget) || 0, Number(item.femaleTarget) || 0];
+      const row = keyToRow[targetKey];
+      if (!row) {
+        sheet.appendRow(rowData);
+        keyToRow[targetKey] = sheet.getLastRow();
+      } else {
+        sheet.getRange(row, 1, 1, 5).setValues([rowData]);
+      }
+    });
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
 // 전체신청자(roster) 화면의 건강증만료일/입사일을 한 번에 일괄 저장
 function batchSaveRoster(list, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getRosterSheet_();
-  const data = sheet.getDataRange().getValues();
-  const keyToRow = {};
-  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
-  list.forEach(item => {
-    let row = keyToRow[item.key];
-    let existingOrder = 0;
-    if (row) existingOrder = Number(sheet.getRange(row, 4).getValue()) || 0;
-    const rowData = [item.key, item.healthCertExpiry || '', item.hireDate || '', existingOrder];
-    if (!row) {
-      sheet.appendRow(rowData);
-      keyToRow[item.key] = sheet.getLastRow();
-    } else {
-      sheet.getRange(row, 1, 1, 4).setValues([rowData]);
-    }
-  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getRosterSheet_();
+    const data = sheet.getDataRange().getValues();
+    const keyToRow = {};
+    for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+    list.forEach(item => {
+      let row = keyToRow[item.key];
+      let existingOrder = 0;
+      if (row) existingOrder = Number(sheet.getRange(row, 4).getValue()) || 0;
+      const rowData = [item.key, item.healthCertExpiry || '', item.hireDate || '', existingOrder];
+      if (!row) {
+        sheet.appendRow(rowData);
+        keyToRow[item.key] = sheet.getLastRow();
+      } else {
+        sheet.getRange(row, 1, 1, 4).setValues([rowData]);
+      }
+    });
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
@@ -690,38 +720,52 @@ function getAssignments(adminPw) {
 
 function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getAssignSheet_();
-  const assignKey = makeAssignKey_(date, shift, key);
-  const row = findRow_(sheet, 0, assignKey);
-  const location = getKeyToLocationMap_()[key] || '';
-  const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
-  if (row === -1) sheet.appendRow(rowData);
-  else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
-  logHistory_(key, date);
+  // 더블클릭 등으로 요청이 거의 동시에 두 번 들어오면 둘 다 findRow_에서 "없음"으로 보고
+  // 각각 appendRow 하여 중복 행이 생길 수 있어(saveRecord와 동일한 문제), 찾기~쓰기 구간을 잠근다.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getAssignSheet_();
+    const assignKey = makeAssignKey_(date, shift, key);
+    const row = findRow_(sheet, 0, assignKey);
+    const location = getKeyToLocationMap_()[key] || '';
+    const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
+    if (row === -1) sheet.appendRow(rowData);
+    else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+    logHistory_(key, date);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
 // 여러 명을 한 번에 배치 (서버 왕복을 1번으로 줄여서 빠르게 처리)
 function batchSaveAssignments(list, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getAssignSheet_();
-  const data = sheet.getDataRange().getValues();
-  const keyToRow = {};
-  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
-  const keyToLocation = getKeyToLocationMap_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getAssignSheet_();
+    const data = sheet.getDataRange().getValues();
+    const keyToRow = {};
+    for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+    const keyToLocation = getKeyToLocationMap_();
 
-  list.forEach(item => {
-    const assignKey = makeAssignKey_(item.date, item.shift, item.key);
-    const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
-    const row = keyToRow[assignKey];
-    if (!row) {
-      sheet.appendRow(rowData);
-      keyToRow[assignKey] = sheet.getLastRow();
-    } else {
-      sheet.getRange(row, 1, 1, 11).setValues([rowData]);
-    }
-    logHistory_(item.key, item.date);
-  });
+    list.forEach(item => {
+      const assignKey = makeAssignKey_(item.date, item.shift, item.key);
+      const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
+      const row = keyToRow[assignKey];
+      if (!row) {
+        sheet.appendRow(rowData);
+        keyToRow[assignKey] = sheet.getLastRow();
+      } else {
+        sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+      }
+      logHistory_(item.key, item.date);
+    });
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
@@ -784,11 +828,17 @@ function getTargets(adminPw) {
 
 function saveTarget(date, shift, maleTarget, femaleTarget, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getTargetSheet_();
-  const targetKey = makeTargetKey_(date, shift);
-  const row = findRow_(sheet, 0, targetKey);
-  const rowData = [targetKey, date, shift, Number(maleTarget) || 0, Number(femaleTarget) || 0];
-  if (row === -1) sheet.appendRow(rowData);
-  else sheet.getRange(row, 1, 1, 5).setValues([rowData]);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getTargetSheet_();
+    const targetKey = makeTargetKey_(date, shift);
+    const row = findRow_(sheet, 0, targetKey);
+    const rowData = [targetKey, date, shift, Number(maleTarget) || 0, Number(femaleTarget) || 0];
+    if (row === -1) sheet.appendRow(rowData);
+    else sheet.getRange(row, 1, 1, 5).setValues([rowData]);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
