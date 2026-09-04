@@ -27,6 +27,8 @@
   .shift-btns { display: flex; gap: 6px; }
   .shift-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fafafa; font-size: 12px; cursor: pointer; user-select: none; }
   .shift-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
+  .shift-btn.disabled { background: #f0f0f0; color: #bbb; border-color: #e5e5e5; cursor: not-allowed; }
+  .shift-btn.disabled.selected { background: #c3cbe0; color: #33406b; border-color: #c3cbe0; cursor: not-allowed;}
   button, .shift-btn, .location-tab, .reorder-btn, .batch-all-btn { transition: transform 0.06s ease; }
   button:active, .shift-btn:active, .location-tab:active, .reorder-btn:active, .batch-all-btn:active { transform: scale(0.95); }
   button.primary { width: 100%; padding: 13px; margin-top: 10px; background: #2f6fed; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
@@ -234,6 +236,19 @@
           </div>
           <button class="primary" onclick="sendBulkSms()">📱 선택 인원에게 문자 발송</button>
           <div id="smsMsg" class="copy-msg"></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <label style="font-size:13px; display:flex; align-items:center; gap:4px; white-space:nowrap;">근무지
+            <select id="rosterLocationFilter" onchange="renderRoster()" style="font-size:13px; padding:5px 8px;"></select>
+          </label>
+          <label style="font-size:13px; display:flex; align-items:center; gap:4px; white-space:nowrap;">기간
+            <select id="rosterMonthsFilter" onchange="renderRoster()" style="font-size:13px; padding:5px 8px;">
+              <option value="1">1개월</option>
+              <option value="3" selected>3개월</option>
+              <option value="6">6개월</option>
+              <option value="12">12개월</option>
+            </select>
+          </label>
         </div>
         <div id="rosterContent"><div class="empty">불러오는 중...</div></div>
       </div>
@@ -470,6 +485,7 @@ function buildDateList(prefill) {
   container.innerHTML = '';
   selections = {};
   const dates = getTwoWeekDates();
+  const todayKey = formatDate(new Date());
   dates.forEach((d, idx) => {
     if (idx === 0 || idx === 7) {
       const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
@@ -488,11 +504,16 @@ function buildDateList(prefill) {
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    const isPast = key < todayKey;
+    const dayBtnClass = 'shift-btn' + (selections[key].day?' selected':'') + (isPast?' disabled':'');
+    const nightBtnClass = 'shift-btn' + (selections[key].night?' selected':'') + (isPast?' disabled':'');
+    const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
+    const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
       <div class="shift-btns">
-        <div class="shift-btn ${selections[key].day?'selected':''}" id="day-${key}" onclick="toggleShift('${key}','day')">주간</div>
-        <div class="shift-btn ${selections[key].night?'selected':''}" id="night-${key}" onclick="toggleShift('${key}','night')">야간</div>
+        <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
+        <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
       </div>`;
     container.appendChild(row);
   });
@@ -1516,13 +1537,25 @@ function batchSaveApplicantLocations(tableId) {
 
 // ---------- 전체신청자 목록 (누적 인사 정보 + 문자발송) ----------
 let lastRosterMerged = [];
+let lastRosterRecords = [];
+let lastRosterData = [];
+let lastRosterWorkStats = {};
+let lastRosterAssignments = [];
 
 function loadRoster() {
   const content = document.getElementById('rosterContent');
   content.innerHTML = '<div class="empty">불러오는 중...</div>';
-  Promise.all([runScript('getAdminData', adminPassword), runScript('getRosterData', adminPassword), runScript('getWorkStats', adminPassword)])
+  const locFilter = document.getElementById('rosterLocationFilter');
+  if (locFilter && locFilter.options.length === 0) {
+    locFilter.innerHTML = '<option value="">전체</option>' + LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
+  }
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getRosterData', adminPassword), runScript('getWorkStats', adminPassword), runScript('getAssignments', adminPassword)])
     .then(function(results) {
-      renderRoster(results[0] || [], results[1] || [], results[2] || {});
+      lastRosterRecords = results[0] || [];
+      lastRosterData = results[1] || [];
+      lastRosterWorkStats = results[2] || {};
+      lastRosterAssignments = results[3] || [];
+      renderRoster();
     })
     .catch(function(err) {
       content.innerHTML = '<div class="empty">불러오기 실패: ' + err.message + '</div>';
@@ -1535,21 +1568,43 @@ function formatMonthlyBreakdown(monthly) {
   return entries.map(([ym, days]) => `${ym.slice(5,7)}월 ${days}일`).join(', ');
 }
 
-function renderRoster(records, rosterData, workStats) {
+// key별로 최근 N개월 이내 배치 근무지를 최신순·중복제거해서 반환
+function computeRecentLocations(assignments, months) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const byKey = {};
+  assignments
+    .filter(a => a.location && new Date(a.date) >= cutoff)
+    .sort((a,b) => a.date < b.date ? 1 : -1)
+    .forEach(a => {
+      if (!byKey[a.key]) byKey[a.key] = [];
+      if (byKey[a.key].indexOf(a.location) === -1) byKey[a.key].push(a.location);
+    });
+  return byKey;
+}
+
+function renderRoster() {
   const content = document.getElementById('rosterContent');
   const rosterByKey = {};
-  rosterData.forEach(r => { rosterByKey[r.key] = r; });
+  lastRosterData.forEach(r => { rosterByKey[r.key] = r; });
 
-  const merged = records.map(rec => {
+  const months = Number((document.getElementById('rosterMonthsFilter') || {}).value) || 3;
+  const locationFilter = (document.getElementById('rosterLocationFilter') || {}).value || '';
+  const recentLocationsByKey = computeRecentLocations(lastRosterAssignments, months);
+
+  const merged = lastRosterRecords.map(rec => {
     const ro = rosterByKey[rec.key] || {};
-    const stat = workStats[rec.key] || { monthly: {}, consecutiveMonths: 0 };
+    const stat = lastRosterWorkStats[rec.key] || { monthly: {}, consecutiveMonths: 0 };
+    const recentLocations = recentLocationsByKey[rec.key] || [];
     return {
       key: rec.key, name: rec.name, phone: rec.phone, birthDate: rec.pin || '',
       healthCertExpiry: ro.healthCertExpiry || '', hireDate: ro.hireDate || '',
       monthlyText: formatMonthlyBreakdown(stat.monthly), consecutiveMonths: stat.consecutiveMonths || 0,
-      adConsent: rec.adConsent || ''
+      adConsent: rec.adConsent || '', recentLocations: recentLocations
     };
-  }).sort((a,b) => a.name.localeCompare(b.name, 'ko'));
+  })
+  .filter(r => !locationFilter || r.recentLocations.indexOf(locationFilter) > -1)
+  .sort((a,b) => a.name.localeCompare(b.name, 'ko'));
 
   lastRosterMerged = merged;
 
@@ -1562,7 +1617,7 @@ function renderRoster(records, rosterData, workStats) {
   html += `<tr>
     <th><input type="checkbox" onclick="toggleAllRoster(this)"></th>
     <th>이름</th><th>생년월일(6자리)</th><th>전화번호</th><th>보건증만료일</th><th>입사일</th>
-    <th>월별근로일수 (자동+과거)</th><th>연속근로(개월)</th><th>광고동의</th><th>저장</th><th>과거이력</th><th>문자</th>
+    <th>월별근로일수 (자동+과거)</th><th>연속근로(개월)</th><th>최근 근무지 (${months}개월)</th><th>광고동의</th><th>저장</th><th>과거이력</th><th>문자</th>
   </tr>`;
   merged.forEach(r => {
     const consented = r.adConsent === 'Y';
@@ -1575,6 +1630,7 @@ function renderRoster(records, rosterData, workStats) {
       <td><input type="date" id="hire_${r.key}" class="global-hire-input" data-key="${r.key}" data-original="${r.hireDate}" value="${r.hireDate}" style="width:130px; font-size:12px; padding:4px;"></td>
       <td style="font-size:12px; max-width:220px;">${r.monthlyText}</td>
       <td style="font-size:13px; font-weight:700; text-align:center;">${r.consecutiveMonths}</td>
+      <td style="font-size:12px; max-width:180px;">${r.recentLocations.length ? r.recentLocations.join(', ') : '-'}</td>
       <td style="font-size:12px; text-align:center; color:${consented ? '#2f6fed' : '#999'};">${consented ? '동의' : '미동의'}</td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveRosterRow('${r.key}')">저장</button></td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openPastHistoryEditor('${r.key}','${r.name}')">과거이력</button></td>

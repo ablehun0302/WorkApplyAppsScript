@@ -382,6 +382,7 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   lock.waitLock(30000);
   const key = makeKey_(name, pin);
   let oldShifts = [];
+  let mergedShifts = [];
   try {
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, key);
@@ -393,7 +394,13 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
       existingAdminGender = sheet.getRange(row, 11).getValue() || '';
       oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
     }
-    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(shifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
+    // 오늘 이전 날짜는 화면에서 수정이 막혀 있지만, 클라이언트를 우회해 saveRecord가 직접 호출될 수도 있으므로
+    // 서버에서도 과거 날짜분은 기존 값을 그대로 유지하고 클라이언트가 보낸 값은 무시한다.
+    const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    const pastOldShifts = oldShifts.filter(s => s.date < todayStr);
+    const newShifts = (shifts || []).filter(s => s.date >= todayStr);
+    mergedShifts = pastOldShifts.concat(newShifts);
+    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(mergedShifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
     console.log("pin: %s, phone: %s", pin, phone);
     if (row === -1) sheet.appendRow(rowData);
     else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
@@ -401,7 +408,7 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
     lock.releaseLock();
   }
   // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
-  removeCanceledAssignments_(key, oldShifts, shifts);
+  removeCanceledAssignments_(key, oldShifts, mergedShifts);
   rebuildLocationSheets_();
   return true;
 }
