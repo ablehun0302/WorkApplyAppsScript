@@ -186,6 +186,7 @@
       <label>관리자에게 하고 싶은 말 (선택)</label>
       <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
       <textarea id="messageBox" rows="4" placeholder="예: 월화수목금토일 신청합니다.&#10;예:주간_월화수목금/야간_화수목금 신청합니다.&#10;예;월화수목금_신세계푸드/토일_BGF 신청합니다" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:8px;"><span style="white-space:nowrap;">일자리 정보(광고성 정보) 수신에 동의합니다 (선택)</span><input type="checkbox" id="adConsent" style="width:18px; flex-shrink:0;"></label>
     </div>
 
     <div id="calendarSection">
@@ -227,7 +228,11 @@
         <div class="card" id="smsPanel">
           <div style="font-weight:700; margin-bottom:6px;">선택한 사람에게 문자 보내기</div>
           <textarea id="smsMessage" rows="3" placeholder="보낼 메시지를 입력하세요" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
-          <button class="primary" onclick="sendBulkSms()">📱 선택 인원 문자 앱 열기</button>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:8px 0;">
+            <label style="display:flex; align-items:center; gap:4px; font-size:13px;">광고성 메시지 <input type="checkbox" id="smsIsAd"></label>
+            <label style="display:flex; align-items:center; gap:4px; font-size:13px;">발신번호 (기본값: 010-5968-1133) <input type="text" id="smsSender" placeholder="예: 0212345678" style="padding:5px 8px; border:1px solid #ddd; border-radius:6px; font-size:13px; width:150px;"></label>
+          </div>
+          <button class="primary" onclick="sendBulkSms()">📱 선택 인원에게 문자 발송</button>
           <div id="smsMsg" class="copy-msg"></div>
         </div>
         <div id="rosterContent"><div class="empty">불러오는 중...</div></div>
@@ -528,6 +533,7 @@ function lookupRecord() {
         renderGenderRadios(existing.gender);
         renderLocationCheckboxes(existing.locations);
         document.getElementById('messageBox').value = existing.message || '';
+        document.getElementById('adConsent').checked = existing.adConsent === 'Y';
         buildDateList(existing.shifts);
         document.getElementById('modeMsg').innerHTML = '<div class="msg info">기존 신청 내역을 불러왔습니다.</div>';
         document.getElementById('cancelBtn').style.display = 'block';
@@ -544,6 +550,7 @@ function lookupRecord() {
         renderGenderRadios('');
         renderLocationCheckboxes([]);
         document.getElementById('messageBox').value = '';
+        document.getElementById('adConsent').checked = false;
         buildDateList(null);
         document.getElementById('modeMsg').innerHTML = '<div class="msg info">근무신청하는 날짜의 (주간/야간)을 눌러서 체크해 주세요. 신청하지 않는 날짜는 그냥 비워두시면 됩니다</div>';
         document.getElementById('cancelBtn').style.display = 'none';
@@ -576,6 +583,7 @@ function submitApplication() {
     return;
   }
   const message = document.getElementById('messageBox').value.trim();
+  const adConsent = document.getElementById('adConsent').checked ? 'Y' : 'N';
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '저장 중...';
   google.script.run
@@ -592,7 +600,7 @@ function submitApplication() {
         : err.message;
       resultMsg.innerHTML = '<div class="msg err">오류: ' + msg + '</div>';
     })
-    .saveRecord(currentName, currentPin, phone, chosen, locations, message, gender);
+    .saveRecord(currentName, currentPin, phone, chosen, locations, message, gender, adConsent);
 }
 
 function cancelApplication() {
@@ -1538,7 +1546,8 @@ function renderRoster(records, rosterData, workStats) {
     return {
       key: rec.key, name: rec.name, phone: rec.phone, birthDate: rec.pin || '',
       healthCertExpiry: ro.healthCertExpiry || '', hireDate: ro.hireDate || '',
-      monthlyText: formatMonthlyBreakdown(stat.monthly), consecutiveMonths: stat.consecutiveMonths || 0
+      monthlyText: formatMonthlyBreakdown(stat.monthly), consecutiveMonths: stat.consecutiveMonths || 0,
+      adConsent: rec.adConsent || ''
     };
   }).sort((a,b) => a.name.localeCompare(b.name, 'ko'));
 
@@ -1553,11 +1562,12 @@ function renderRoster(records, rosterData, workStats) {
   html += `<tr>
     <th><input type="checkbox" onclick="toggleAllRoster(this)"></th>
     <th>이름</th><th>생년월일(6자리)</th><th>전화번호</th><th>보건증만료일</th><th>입사일</th>
-    <th>월별근로일수 (자동+과거)</th><th>연속근로(개월)</th><th>저장</th><th>과거이력</th><th>문자</th>
+    <th>월별근로일수 (자동+과거)</th><th>연속근로(개월)</th><th>광고동의</th><th>저장</th><th>과거이력</th><th>문자</th>
   </tr>`;
   merged.forEach(r => {
+    const consented = r.adConsent === 'Y';
     html += `<tr>
-      <td><input type="checkbox" class="roster-select" data-key="${r.key}" data-phone="${r.phone||''}" data-name="${r.name}"></td>
+      <td><input type="checkbox" class="roster-select" data-key="${r.key}" data-phone="${r.phone||''}" data-name="${r.name}" data-consent="${consented ? '1' : '0'}"></td>
       <td>${r.name}</td>
       <td style="font-size:12px;">${r.birthDate || '-'}</td>
       <td style="font-size:12px;">${r.phone||'-'}</td>
@@ -1565,9 +1575,10 @@ function renderRoster(records, rosterData, workStats) {
       <td><input type="date" id="hire_${r.key}" class="global-hire-input" data-key="${r.key}" data-original="${r.hireDate}" value="${r.hireDate}" style="width:130px; font-size:12px; padding:4px;"></td>
       <td style="font-size:12px; max-width:220px;">${r.monthlyText}</td>
       <td style="font-size:13px; font-weight:700; text-align:center;">${r.consecutiveMonths}</td>
+      <td style="font-size:12px; text-align:center; color:${consented ? '#2f6fed' : '#999'};">${consented ? '동의' : '미동의'}</td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveRosterRow('${r.key}')">저장</button></td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openPastHistoryEditor('${r.key}','${r.name}')">과거이력</button></td>
-      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="sendSingleSms('${r.phone||''}')">📱</button></td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="sendSingleSms('${r.phone||''}', ${consented ? '1' : '0'})">📱</button></td>
     </tr>`;
   });
   html += '</table></div>';
@@ -1656,33 +1667,57 @@ function closePastHistoryOverlay() {
   loadRoster();
 }
 
-function sendSingleSms(phone) {
+function sendSingleSms(phone, consented) {
   if (!phone) { alert('전화번호가 없습니다.'); return; }
   const message = document.getElementById('smsMessage').value || '';
+  if (!message.trim()) { alert('보낼 메시지를 입력해주세요.'); return; }
   const cleanPhone = phone.replace(/[^0-9]/g, '');
-  window.open(`sms:${cleanPhone}?body=${encodeURIComponent(message)}`, '_blank');
+  if (!cleanPhone) { alert('전화번호가 올바르지 않습니다.'); return; }
+  const isAd = document.getElementById('smsIsAd').checked;
+  if (isAd && !consented) { alert('광고 수신에 동의하지 않은 대상입니다. 광고성 메시지는 보낼 수 없습니다.'); return; }
+  const sender = document.getElementById('smsSender').value.replace(/[^0-9]/g, '');
+  if (!confirm(`${cleanPhone}로 문자를 발송할까요?`)) return;
+
+  const msgEl = document.getElementById('smsMsg');
+  msgEl.textContent = '발송 중...';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      msgEl.textContent = `접수 완료 (성공 ${result.successCount}건 / 실패 ${result.errorCount}건)`;
+      setTimeout(() => { msgEl.textContent = ''; }, 6000);
+    })
+    .withFailureHandler(function(err) {
+      msgEl.textContent = '발송 오류: ' + err.message;
+    })
+    .sendSms([cleanPhone], message, isAd, sender, adminPassword);
 }
 
 function sendBulkSms() {
-  const checked = document.querySelectorAll('.roster-select:checked');
+  let checked = Array.from(document.querySelectorAll('.roster-select:checked'));
   if (checked.length === 0) { alert('문자 보낼 사람을 먼저 체크해주세요.'); return; }
   const message = document.getElementById('smsMessage').value || '';
-  const phones = Array.from(checked).map(cb => (cb.dataset.phone || '').replace(/[^0-9]/g, '')).filter(p => p);
-  if (phones.length === 0) { alert('선택된 사람들의 전화번호가 없습니다.'); return; }
-  const msgEl = document.getElementById('smsMsg');
-
-  // 다수 번호를 콤마로 연결해 문자 앱 실행 시도 (기기/브라우저에 따라 동작이 다를 수 있음)
-  const numberList = phones.join(',');
-  window.open(`sms:${numberList}?body=${encodeURIComponent(message)}`, '_blank');
-
-  // 혹시 다중 수신자가 안 열릴 경우를 대비해 번호 목록을 클립보드에도 복사
-  try {
-    navigator.clipboard.writeText(phones.join(', '));
-    msgEl.textContent = `문자 앱을 열었습니다. (번호 ${phones.length}개도 클립보드에 복사됨 - 안 열리면 문자 앱에 직접 붙여넣어주세요)`;
-  } catch (e) {
-    msgEl.textContent = `문자 앱을 열었습니다. (대상 ${phones.length}명)`;
+  if (!message.trim()) { alert('보낼 메시지를 입력해주세요.'); return; }
+  const isAd = document.getElementById('smsIsAd').checked;
+  if (isAd) {
+    const excluded = checked.filter(cb => cb.dataset.consent !== '1').length;
+    checked = checked.filter(cb => cb.dataset.consent === '1');
+    if (excluded > 0 && !confirm(`광고 수신 미동의자 ${excluded}명은 발송 대상에서 제외됩니다. 계속할까요?`)) return;
   }
-  setTimeout(() => { msgEl.textContent = ''; }, 6000);
+  const phones = checked.map(cb => (cb.dataset.phone || '').replace(/[^0-9]/g, '')).filter(p => p);
+  if (phones.length === 0) { alert('선택된 사람들의 전화번호가 없습니다.'); return; }
+  const sender = document.getElementById('smsSender').value.replace(/[^0-9]/g, '');
+  if (!confirm(`${phones.length}명에게 문자를 발송할까요?`)) return;
+
+  const msgEl = document.getElementById('smsMsg');
+  msgEl.textContent = '발송 중...';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      msgEl.textContent = `접수 완료 (성공 ${result.successCount}건 / 실패 ${result.errorCount}건)`;
+      setTimeout(() => { msgEl.textContent = ''; }, 6000);
+    })
+    .withFailureHandler(function(err) {
+      msgEl.textContent = '발송 오류: ' + err.message;
+    })
+    .sendSms(phones, message, isAd, sender, adminPassword);
 }
 
 // ---------- 관리자용 근로자 추가 (신청 누락자 등록) ----------

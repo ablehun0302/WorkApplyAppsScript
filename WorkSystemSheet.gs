@@ -96,6 +96,46 @@ function removeHistory_(key, date) {
   if (row > -1) sheet.deleteRow(row);
 }
 
+// 근로자 신청 화면(getTwoWeekDates, index.html)과 동일한 규칙(이번 주 월요일부터 14일)의
+// 날짜 집합을 서버에서 계산한다. 이 창 밖의 날짜는 애초에 화면에 보이지 않으므로 신청 수정 시
+// shifts에 안 들어있어도 "취소"가 아니라 단순히 편집 대상이 아니었던 것으로 봐야 한다.
+function getCurrentTwoWeekDateSet_() {
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const dayOfWeek = Number(Utilities.formatDate(now, tz, 'u')); // 1=월 ... 7=일
+  const start = new Date(now);
+  start.setDate(start.getDate() - (dayOfWeek - 1));
+  const set = new Set();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    set.add(Utilities.formatDate(d, tz, 'yyyy-MM-dd'));
+  }
+  return set;
+}
+
+// 근로자 신청 수정/취소로 사라진 (날짜,시프트) 중, 실제로 화면에 보였던(=이번 주~다음 주)
+// 날짜에 한해서만 Assign/History에서 제거한다.
+// oldShifts/newShifts: [{date, day, night}, ...] (전체 취소 시 newShifts는 빈 배열)
+function removeCanceledAssignments_(key, oldShifts, newShifts) {
+  const currentWindow = getCurrentTwoWeekDateSet_();
+  const newMap = {};
+  (newShifts || []).forEach(s => { newMap[s.date] = s; });
+  const asheet = getAssignSheet_();
+  (oldShifts || []).forEach(old => {
+    if (!currentWindow.has(old.date)) return; // 화면에 안 보이는(지난 주 이전) 날짜는 취소로 보지 않는다
+    const cur = newMap[old.date] || {};
+    ['day', 'night'].forEach(shift => {
+      if (!old[shift] || cur[shift]) return;
+      const row = findRow_(asheet, 0, makeAssignKey_(old.date, shift, key));
+      if (row > -1) asheet.deleteRow(row);
+      const otherShift = shift === 'day' ? 'night' : 'day';
+      const stillHas = findRow_(asheet, 0, makeAssignKey_(old.date, otherShift, key)) > -1;
+      if (!stillHas) removeHistory_(key, old.date);
+    });
+  });
+}
+
 function getPastMonthlySheet_() {
   const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName('PastMonthly');
@@ -211,7 +251,7 @@ function getDataSheet_() {
   let sheet = ss.getSheetByName('Data');
   if (!sheet) {
     sheet = ss.insertSheet('Data');
-    sheet.appendRow(['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender']);
+    sheet.appendRow(['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
     cleanupDefaultSheets_(ss);
   }
   sheet.getRange('D:D').setNumberFormat('@'); // pin 앞자리 0 유실 방지 (기존 시트에도 매번 적용)
@@ -223,7 +263,7 @@ function getAssignSheet_() {
   let sheet = ss.getSheetByName('Assign');
   if (!sheet) {
     sheet = ss.insertSheet('Assign');
-    sheet.appendRow(['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage']);
+    sheet.appendRow(['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location']);
     sheet.getRange('B:B').setNumberFormat('@');
     cleanupDefaultSheets_(ss);
   }
@@ -278,8 +318,8 @@ function lookupRecord(name, pin) {
   const key = makeKey_(name, pin);
   const row = findRow_(sheet, 0, key);
   if (row === -1) return null;
-  const v = sheet.getRange(row, 1, 1, 11).getValues()[0];
-  return { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '' };
+  const v = sheet.getRange(row, 1, 1, 12).getValues()[0];
+  return { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
 }
 
 // 여러 명의 근무자를 한 번에 일괄 등록 (관리자 추가 화면에서 사용)
@@ -301,17 +341,19 @@ function batchSaveRecords(list, adminPw) {
       const row = keyToRow[key];
       let existingAdminLocation = '';
       let existingAdminGender = '';
+      let existingAdConsent = '';
       if (row) {
         existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
         existingAdminGender = sheet.getRange(row, 11).getValue() || '';
+        existingAdConsent = sheet.getRange(row, 12).getValue() || '';
       }
       const rowData = [
         key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
         JSON.stringify(item.shifts || []), JSON.stringify(item.locations || []),
-        existingAdminLocation, '', item.gender || '', existingAdminGender
+        existingAdminLocation, '', item.gender || '', existingAdminGender, existingAdConsent
       ];
       if (row) {
-        sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+        sheet.getRange(row, 1, 1, 12).setValues([rowData]);
       } else if (pendingNewIndexByKey.hasOwnProperty(key)) {
         newRows[pendingNewIndexByKey[key]] = rowData;
       } else {
@@ -322,7 +364,7 @@ function batchSaveRecords(list, adminPw) {
 
     // 새로 추가되는 사람은 한 번에 묶어서 기록 (건별 appendRow보다 훨씬 빠름)
     if (newRows.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 11).setValues(newRows);
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 12).setValues(newRows);
     }
   } finally {
     lock.releaseLock();
@@ -332,15 +374,16 @@ function batchSaveRecords(list, adminPw) {
   return true;
 }
 
-function saveRecord(name, pin, phone, shifts, locations, message, gender) {
+function saveRecord(name, pin, phone, shifts, locations, message, gender, adConsent) {
   // 동시에 두 요청이 들어오면 둘 다 "기존 행 없음"으로 보고 동일 key로 각각 appendRow 하여
   // 중복 행이 생길 수 있어(findRow_는 항상 첫 번째 매칭 행만 찾으므로 이후 수정은 그 중 하나만 반영됨),
   // 찾기~쓰기 구간을 잠가 원자적으로 만든다.
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
+  const key = makeKey_(name, pin);
+  let oldShifts = [];
   try {
     const sheet = getDataSheet_();
-    const key = makeKey_(name, pin);
     const row = findRow_(sheet, 0, key);
     const now = new Date().toISOString();
     let existingAdminLocation = '';
@@ -348,14 +391,17 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender) {
     if (row !== -1) {
       existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
       existingAdminGender = sheet.getRange(row, 11).getValue() || '';
+      oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
     }
-    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(shifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender];
+    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(shifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
     console.log("pin: %s, phone: %s", pin, phone);
     if (row === -1) sheet.appendRow(rowData);
-    else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+    else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
   } finally {
     lock.releaseLock();
   }
+  // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
+  removeCanceledAssignments_(key, oldShifts, shifts);
   rebuildLocationSheets_();
   return true;
 }
@@ -529,12 +575,13 @@ function deleteRecord(name, pin) {
   const sheet = getDataSheet_();
   const key = makeKey_(name, pin);
   const row = findRow_(sheet, 0, key);
-  if (row > -1) sheet.deleteRow(row);
-  const asheet = getAssignSheet_();
-  const adata = asheet.getDataRange().getValues();
-  for (let i = adata.length - 1; i >= 1; i--) {
-    if (adata[i][3] === key) asheet.deleteRow(i + 1);
+  let oldShifts = [];
+  if (row > -1) {
+    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
+    sheet.deleteRow(row);
   }
+  // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하고, 그 외 이력은 보존한다.
+  removeCanceledAssignments_(key, oldShifts, []);
   rebuildLocationSheets_();
   return true;
 }
@@ -564,6 +611,7 @@ function getAdminData(adminPw) {
       message: data[i][8] || '',
       gender: data[i][9] || '',
       adminGender: data[i][10] || '',
+      adConsent: data[i][11] || '',
       sortOrder: orderByKey[data[i][0]] || 0
     });
   }
@@ -599,6 +647,19 @@ function rebuildLocationSheets_() {
 }
 
 // ---- 배치 관련 ----
+// Data 시트 기준 근로자별 신청 근무지(adminLocation 우선, 없으면 첫 신청 근무지)를 일괄 조회
+function getKeyToLocationMap_() {
+  const sheet = getDataSheet_();
+  const data = sheet.getDataRange().getValues();
+  const map = {};
+  for (let i = 1; i < data.length; i++) {
+    let locations = [];
+    try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) {}
+    map[data[i][0]] = data[i][7] || locations[0] || '';
+  }
+  return map;
+}
+
 function getAssignments(adminPw) {
   requireAdmin_(adminPw);
   const sheet = getAssignSheet_();
@@ -610,7 +671,8 @@ function getAssignments(adminPw) {
       name: data[i][4], gender: data[i][5], floor: data[i][6],
       isEducation: data[i][7] === true || data[i][7] === 'TRUE',
       isNew: data[i][8] === true || data[i][8] === 'TRUE',
-      isWomenWage: data[i][9] === true || data[i][9] === 'TRUE'
+      isWomenWage: data[i][9] === true || data[i][9] === 'TRUE',
+      location: data[i][10] || ''
     });
   }
   return list;
@@ -621,9 +683,10 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
   const sheet = getAssignSheet_();
   const assignKey = makeAssignKey_(date, shift, key);
   const row = findRow_(sheet, 0, assignKey);
-  const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage];
+  const location = getKeyToLocationMap_()[key] || '';
+  const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
   if (row === -1) sheet.appendRow(rowData);
-  else sheet.getRange(row, 1, 1, 10).setValues([rowData]);
+  else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
   logHistory_(key, date);
   return true;
 }
@@ -635,16 +698,17 @@ function batchSaveAssignments(list, adminPw) {
   const data = sheet.getDataRange().getValues();
   const keyToRow = {};
   for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+  const keyToLocation = getKeyToLocationMap_();
 
   list.forEach(item => {
     const assignKey = makeAssignKey_(item.date, item.shift, item.key);
-    const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage];
+    const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
     const row = keyToRow[assignKey];
     if (!row) {
       sheet.appendRow(rowData);
       keyToRow[assignKey] = sheet.getLastRow();
     } else {
-      sheet.getRange(row, 1, 1, 10).setValues([rowData]);
+      sheet.getRange(row, 1, 1, 11).setValues([rowData]);
     }
     logHistory_(item.key, item.date);
   });
