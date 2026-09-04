@@ -263,7 +263,7 @@ function getAssignSheet_() {
   let sheet = ss.getSheetByName('Assign');
   if (!sheet) {
     sheet = ss.insertSheet('Assign');
-    sheet.appendRow(['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage']);
+    sheet.appendRow(['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location']);
     sheet.getRange('B:B').setNumberFormat('@');
     cleanupDefaultSheets_(ss);
   }
@@ -647,6 +647,19 @@ function rebuildLocationSheets_() {
 }
 
 // ---- 배치 관련 ----
+// Data 시트 기준 근로자별 신청 근무지(adminLocation 우선, 없으면 첫 신청 근무지)를 일괄 조회
+function getKeyToLocationMap_() {
+  const sheet = getDataSheet_();
+  const data = sheet.getDataRange().getValues();
+  const map = {};
+  for (let i = 1; i < data.length; i++) {
+    let locations = [];
+    try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) {}
+    map[data[i][0]] = data[i][7] || locations[0] || '';
+  }
+  return map;
+}
+
 function getAssignments(adminPw) {
   requireAdmin_(adminPw);
   const sheet = getAssignSheet_();
@@ -658,7 +671,8 @@ function getAssignments(adminPw) {
       name: data[i][4], gender: data[i][5], floor: data[i][6],
       isEducation: data[i][7] === true || data[i][7] === 'TRUE',
       isNew: data[i][8] === true || data[i][8] === 'TRUE',
-      isWomenWage: data[i][9] === true || data[i][9] === 'TRUE'
+      isWomenWage: data[i][9] === true || data[i][9] === 'TRUE',
+      location: data[i][10] || ''
     });
   }
   return list;
@@ -669,9 +683,10 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
   const sheet = getAssignSheet_();
   const assignKey = makeAssignKey_(date, shift, key);
   const row = findRow_(sheet, 0, assignKey);
-  const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage];
+  const location = getKeyToLocationMap_()[key] || '';
+  const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
   if (row === -1) sheet.appendRow(rowData);
-  else sheet.getRange(row, 1, 1, 10).setValues([rowData]);
+  else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
   logHistory_(key, date);
   return true;
 }
@@ -683,16 +698,17 @@ function batchSaveAssignments(list, adminPw) {
   const data = sheet.getDataRange().getValues();
   const keyToRow = {};
   for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+  const keyToLocation = getKeyToLocationMap_();
 
   list.forEach(item => {
     const assignKey = makeAssignKey_(item.date, item.shift, item.key);
-    const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage];
+    const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
     const row = keyToRow[assignKey];
     if (!row) {
       sheet.appendRow(rowData);
       keyToRow[assignKey] = sheet.getLastRow();
     } else {
-      sheet.getRange(row, 1, 1, 10).setValues([rowData]);
+      sheet.getRange(row, 1, 1, 11).setValues([rowData]);
     }
     logHistory_(item.key, item.date);
   });
