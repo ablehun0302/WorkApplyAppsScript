@@ -27,6 +27,8 @@
   .shift-btns { display: flex; gap: 6px; }
   .shift-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fafafa; font-size: 12px; cursor: pointer; user-select: none; }
   .shift-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
+  .shift-btn.disabled { background: #f0f0f0; color: #bbb; border-color: #e5e5e5; cursor: not-allowed; }
+  .shift-btn.disabled.selected { background: #c3cbe0; color: #33406b; border-color: #c3cbe0; cursor: not-allowed;}
   button, .shift-btn, .location-tab, .reorder-btn, .batch-all-btn { transition: transform 0.06s ease; }
   button:active, .shift-btn:active, .location-tab:active, .reorder-btn:active, .batch-all-btn:active { transform: scale(0.95); }
   button.primary { width: 100%; padding: 13px; margin-top: 10px; background: #2f6fed; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
@@ -483,6 +485,7 @@ function buildDateList(prefill) {
   container.innerHTML = '';
   selections = {};
   const dates = getTwoWeekDates();
+  const todayKey = formatDate(new Date());
   dates.forEach((d, idx) => {
     if (idx === 0 || idx === 7) {
       const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
@@ -501,11 +504,16 @@ function buildDateList(prefill) {
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    const isPast = key < todayKey;
+    const dayBtnClass = 'shift-btn' + (selections[key].day?' selected':'') + (isPast?' disabled':'');
+    const nightBtnClass = 'shift-btn' + (selections[key].night?' selected':'') + (isPast?' disabled':'');
+    const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
+    const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
       <div class="shift-btns">
-        <div class="shift-btn ${selections[key].day?'selected':''}" id="day-${key}" onclick="toggleShift('${key}','day')">주간</div>
-        <div class="shift-btn ${selections[key].night?'selected':''}" id="night-${key}" onclick="toggleShift('${key}','night')">야간</div>
+        <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
+        <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
       </div>`;
     container.appendChild(row);
   });
