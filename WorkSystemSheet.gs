@@ -587,8 +587,11 @@ function deleteRecord(name, pin) {
     oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
     sheet.deleteRow(row);
   }
-  // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하고, 그 외 이력은 보존한다.
-  removeCanceledAssignments_(key, oldShifts, []);
+  // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하되,
+  // 이미 지난 날짜(오늘 이전)의 배치/이력은 saveRecord와 동일하게 그대로 보존한다.
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const pastOldShifts = oldShifts.filter(s => s.date < todayStr);
+  removeCanceledAssignments_(key, oldShifts, pastOldShifts);
   rebuildLocationSheets_();
   return true;
 }
