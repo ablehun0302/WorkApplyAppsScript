@@ -2193,7 +2193,8 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
     const nightTarget = targets.find(t => t.date === dateStr && t.shift === 'night');
     const dayApplicants = (byDate[dateStr] && byDate[dateStr].day) || [];
     const nightApplicants = (byDate[dateStr] && byDate[dateStr].night) || [];
-    if (allowedKeys && dayApplicants.length === 0 && nightApplicants.length === 0) return;
+    const hasAssignedThisDate = assignments.some(a => a.date === dateStr && (!allowedKeys || allowedKeys.has(a.key)));
+    if (allowedKeys && dayApplicants.length === 0 && nightApplicants.length === 0 && !hasAssignedThisDate) return;
 
     html += `<div class="assign-date-card collapsed">`;
     const titleBadge = currentLocationFilter !== '전체' ? ` <span class="loc-badge">${viewLabel}</span>` : '';
@@ -2361,7 +2362,12 @@ function renderAdmin(records, assignments, targets) {
     html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
   }
 
-  const allowedKeys = (currentLocationFilter === '전체') ? null : new Set(filteredRecords.map(r => r.key));
+  // 신청 전체 취소로 Data에서 사라진 근무자라도, 지난 배치 기록(Assign)의 근무지가 현재 필터와
+  // 일치하면 배치판에서 계속 보이도록 allowedKeys에 함께 포함한다.
+  const allowedKeys = (currentLocationFilter === '전체') ? null : new Set(
+    filteredRecords.map(r => r.key)
+      .concat((assignments || []).filter(a => a.location === currentLocationFilter).map(a => a.key))
+  );
   html += buildAssignBoard(allDates, byDate, assignments || [], targets || [], allowedKeys, keyToLocation, keyToWeek1Count, keyToWeek2Count, week1Set);
 
   if (filteredRecords.length > 0) {
