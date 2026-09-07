@@ -226,6 +226,7 @@
         <button class="primary" style="width:auto; padding:6px 14px; margin-top:0;" onclick="saveAllOnScreen()">💾 전체 저장</button>
         <button class="secondary" style="width:auto; padding:6px 12px;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
         <button class="secondary" style="width:auto; padding:6px 12px;" onclick="refreshAdminSubView()">🔄 새로고침</button>
+        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="adminLogout()">🚪 로그아웃</button>
       </div>
       <div id="saveAllMsg" style="text-align:right; margin-bottom:8px;"></div>
 
@@ -330,6 +331,31 @@
 
 <script>
 const DAY_NAMES = ['일','월','화','수','목','금','토'];
+
+// ---- 새로고침해도 보던 스크롤 위치 유지 ----
+// 관리자 화면이었으면 데이터가 다 그려진 뒤에 복원해야 하므로 그쪽은 restoreScrollPending으로 미뤄둠
+let restoreScrollPending = false;
+if (localStorage.getItem('lastTab') !== 'admin') {
+  const savedScrollY = sessionStorage.getItem('scrollY');
+  if (savedScrollY !== null) window.scrollTo(0, parseInt(savedScrollY, 10));
+} else {
+  restoreScrollPending = true;
+}
+function applyPendingScrollRestore() {
+  if (!restoreScrollPending) return;
+  restoreScrollPending = false;
+  const y = sessionStorage.getItem('scrollY');
+  if (y !== null) requestAnimationFrame(function() { window.scrollTo(0, parseInt(y, 10)); });
+}
+let scrollSaveScheduled = false;
+window.addEventListener('scroll', function() {
+  if (scrollSaveScheduled) return;
+  scrollSaveScheduled = true;
+  requestAnimationFrame(function() {
+    sessionStorage.setItem('scrollY', window.scrollY);
+    scrollSaveScheduled = false;
+  });
+});
 
 // google.script.run 호출을 Promise로 감싸서 여러 개를 동시에 실행할 수 있게 함
 function runScript(fnName, ...args) {
@@ -706,6 +732,7 @@ function resetIdentity() {
 let adminSubView = 'board';
 
 function switchTab(tab) {
+  localStorage.setItem('lastTab', tab);
   document.getElementById('tabWorker').classList.toggle('active', tab==='worker');
   document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
   document.getElementById('workerView').style.display = tab==='worker' ? 'block' : 'none';
@@ -725,6 +752,7 @@ function switchTab(tab) {
 
 function switchAdminSubView(view) {
   adminSubView = view;
+  localStorage.setItem('lastAdminSubView', view);
   document.getElementById('subtabBoard').classList.toggle('active', view==='board');
   document.getElementById('subtabRoster').classList.toggle('active', view==='roster');
   document.getElementById('adminBoardArea').style.display = view==='board' ? 'block' : 'none';
@@ -734,6 +762,8 @@ function switchAdminSubView(view) {
 }
 
 function refreshAdminSubView() {
+  sessionStorage.setItem('scrollY', window.scrollY);
+  restoreScrollPending = true;
   switchAdminSubView(adminSubView);
 }
 
@@ -746,6 +776,7 @@ function checkAdminPw() {
       if (ok) {
         adminAuthenticated = true;
         adminPassword = pw;
+        localStorage.setItem('adminPassword', pw);
         document.getElementById('adminLoginCard').style.display = 'none';
         document.getElementById('adminMainArea').style.display = 'block';
         switchAdminSubView('board');
@@ -757,6 +788,16 @@ function checkAdminPw() {
       msgEl.innerHTML = '<div class="msg err">오류: ' + err.message + '</div>';
     })
     .checkAdminPassword(pw);
+}
+
+// 공용 PC 등에서 로그아웃해 저장된 비밀번호를 지우고 다음 방문 때 자동 로그인되지 않게 함
+function adminLogout() {
+  adminAuthenticated = false;
+  adminPassword = '';
+  localStorage.removeItem('adminPassword');
+  document.getElementById('adminPw').value = '';
+  document.getElementById('adminPwMsg').innerHTML = '';
+  switchTab('worker');
 }
 
 // ---------- 관리자 화면 ----------
@@ -1665,6 +1706,7 @@ function renderRoster() {
 
   if (merged.length === 0) {
     content.innerHTML = '<div class="empty">신청자가 없습니다.</div>';
+    applyPendingScrollRestore();
     return;
   }
 
@@ -1695,6 +1737,7 @@ function renderRoster() {
   html += '</table></div>';
   content.innerHTML = html;
   addScrollArrows(content);
+  applyPendingScrollRestore();
 }
 
 function toggleAllRoster(cb) {
@@ -2468,6 +2511,7 @@ function renderAdmin(records, assignments, targets) {
   applyPendingCellStyles();
   syncInfoEditToolbar();
   applyPendingInfoCellStyles();
+  applyPendingScrollRestore();
 }
 renderLocationCheckboxes([]);
 renderGenderRadios('');
@@ -2479,6 +2523,24 @@ setInterval(function() {
     saveAllOnScreen();
   }
 }, 5 * 60 * 1000);
+
+// ---- 브라우저를 껐다 켜도 관리자 로그인/화면 유지 ----
+// 비밀번호를 localStorage에 저장해뒀다가 서버에 재검증해서 통과하면 로그인 화면을 건너뛰고
+// 보고 있던 서브뷰(게시판/명단)로 바로 이동시킴. 실패하면 저장된 값을 지우고 그대로 로그인 화면 표시.
+(function restoreAdminSession() {
+  const savedPw = localStorage.getItem('adminPassword');
+  if (!savedPw || localStorage.getItem('lastTab') !== 'admin') return;
+  adminRun()
+    .withSuccessHandler(function(ok) {
+      if (!ok) { localStorage.removeItem('adminPassword'); return; }
+      adminAuthenticated = true;
+      adminPassword = savedPw;
+      adminSubView = localStorage.getItem('lastAdminSubView') || 'board';
+      switchTab('admin');
+    })
+    .withFailureHandler(function() { localStorage.removeItem('adminPassword'); })
+    .checkAdminPassword(savedPw);
+})();
 </script>
 </body>
 </html>
