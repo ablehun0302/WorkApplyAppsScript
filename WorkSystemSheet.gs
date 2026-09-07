@@ -588,29 +588,35 @@ function adminUpdateShifts(key, shifts, adminPw) {
   return true;
 }
 
-// 연락처/생년월일(핀)을 나중에 추가/수정. 핀이 바뀌면 key가 바뀌므로 관련 시트를 모두 옮겨준다.
-function setContactInfo(oldKey, phone, newPin, adminPw) {
+// 이름/연락처/생년월일(핀)을 나중에 추가/수정. 이름이나 핀이 바뀌면 key가 바뀌므로 관련 시트를 모두 옮겨준다.
+// 각 값은 undefined/null(이름은 빈 문자열 포함)이면 기존 값을 유지하므로, 일부 필드만 넘겨도 나머지가 지워지지 않는다.
+function setContactInfo(oldKey, newName, phone, newPin, adminPw) {
   requireAdmin_(adminPw);
   const sheet = getDataSheet_();
   const row = findRow_(sheet, 0, oldKey);
   if (row === -1) return false;
 
-  const name = sheet.getRange(row, 2).getValue();
+  const currentName = sheet.getRange(row, 2).getValue();
+  const finalName = (newName === undefined || newName === null || !String(newName).trim()) ? currentName : String(newName).trim();
+  const currentPhone = sheet.getRange(row, 3).getValue() || '';
+  const finalPhone = (phone === undefined || phone === null) ? currentPhone : phone;
   const currentPin = sheet.getRange(row, 4).getValue() || '';
   const finalPin = (newPin === undefined || newPin === null) ? currentPin : newPin;
-  const newKey = makeKey_(name, finalPin || '');
+  const newKey = makeKey_(finalName, finalPin || '');
 
-  sheet.getRange(row, 3).setValue(toTextCell_(phone || ''));
+  sheet.getRange(row, 2).setValue(finalName);
+  sheet.getRange(row, 3).setValue(toTextCell_(finalPhone || ''));
   sheet.getRange(row, 4).setValue(toTextCell_(finalPin || ''));
 
   if (newKey !== oldKey) {
     sheet.getRange(row, 1).setValue(newKey);
-    reKeyRelatedSheets_(oldKey, newKey);
+    reKeyRelatedSheets_(oldKey, newKey, finalName !== currentName ? finalName : null);
   }
   return true;
 }
 
-function reKeyRelatedSheets_(oldKey, newKey) {
+// newName을 넘기면(이름이 바뀐 경우) Assign 시트에 복제되어 있는 이름 표시값도 함께 갱신한다.
+function reKeyRelatedSheets_(oldKey, newKey, newName) {
   const assignSheet = getAssignSheet_();
   const aData = assignSheet.getDataRange().getValues();
   for (let i = 1; i < aData.length; i++) {
@@ -618,6 +624,7 @@ function reKeyRelatedSheets_(oldKey, newKey) {
       const newAssignKey = makeAssignKey_(aData[i][1], aData[i][2], newKey);
       assignSheet.getRange(i + 1, 1).setValue(newAssignKey);
       assignSheet.getRange(i + 1, 4).setValue(newKey);
+      if (newName) assignSheet.getRange(i + 1, 5).setValue(newName);
     }
   }
 

@@ -314,6 +314,8 @@
   <div id="adminEditOverlay" class="edit-overlay" style="display:none;">
     <div class="edit-overlay-card">
       <div class="edit-overlay-title" id="adminEditTitle">일정 수정</div>
+      <label>이름</label>
+      <input type="text" id="adminEditName" placeholder="이름">
       <label>연락처</label>
       <input type="tel" id="adminEditPhone" placeholder="010-0000-0000">
       <label>생년월일 6자리 (비어있으면 나중에 채워도 됩니다)</label>
@@ -2129,6 +2131,7 @@ function openAdminEditShifts(key, name) {
   const existingShifts = rec ? (rec.shifts || []) : [];
   document.getElementById('adminEditTitle').textContent = name + '님 일정 수정';
   document.getElementById('adminEditMsg').innerHTML = '';
+  document.getElementById('adminEditName').value = name || '';
   document.getElementById('adminEditPhone').value = rec ? (rec.phone || '') : '';
   document.getElementById('adminEditPin').value = rec ? (rec.pin || '') : '';
 
@@ -2181,10 +2184,15 @@ function saveAdminShiftsEdit() {
   const shifts = Object.entries(adminEditSelections)
     .filter(([k,v]) => v.day || v.night)
     .map(([k,v]) => ({ date:k, day:v.day, night:v.night }));
+  const name = document.getElementById('adminEditName').value.trim();
   const phone = document.getElementById('adminEditPhone').value.trim();
   const pin = document.getElementById('adminEditPin').value.trim();
   const msgEl = document.getElementById('adminEditMsg');
 
+  if (!name) {
+    msgEl.innerHTML = '<div class="msg err">이름을 입력해주세요.</div>';
+    return;
+  }
   if (pin && !/^[0-9]{6}$/.test(pin)) {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
     return;
@@ -2200,7 +2208,7 @@ function saveAdminShiftsEdit() {
         .withFailureHandler(function(err) {
           msgEl.innerHTML = '<div class="msg err">연락처 저장 오류: ' + err.message + '</div>';
         })
-        .setContactInfo(adminEditKey, phone, pin, adminPassword);
+        .setContactInfo(adminEditKey, name, phone, pin, adminPassword);
     })
     .withFailureHandler(function(err) {
       msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>';

@@ -65,6 +65,12 @@ Google Apps Script 기반 웹앱으로, 서버 로직(`Code.gs` + `SheetData.gs`
 
 ## 변경 이력
 
+### 2026-09-07: 관리자가 근로자 이름을 직접 수정하는 기능 추가
+
+배치판의 "일정수정" 오버레이(연락처/생년월일 수정 겸용)에 이름 입력칸을 추가했다. `key`가 `base64(이름|PIN)`이라 이름이 바뀌면 PIN 변경과 마찬가지로 key가 바뀌므로, `setContactInfo(oldKey, newName, phone, newPin, adminPw)`로 시그니처를 확장해 기존 재키(`reKeyRelatedSheets_`) 로직을 그대로 재사용했다. 다만 Assign 시트에 복제되어 있던 이름 표시값은 기존에 재키 시 갱신되지 않던 것을 이번에 함께 갱신하도록 고쳤다(안 그러면 배치 기록에 옛 이름이 남음).
+
+추후 별도의 "이름만 수정" 버튼을 만들 때도 안전하게 재사용할 수 있도록, name/phone/pin 세 값 모두 "값을 안 넘기면(undefined/null, 이름은 빈 문자열도 포함) 기존 값 유지"로 통일했다(기존에는 pin만 이렇게 동작하고 phone은 넘긴 값으로 항상 덮어썼음).
+
 ### 2026-09-04(4): 신청 전체 취소 시 이미 지난 날짜의 Assign/History 삭제 방지
 
 근무자가 "신청 전체 취소"(`deleteRecord`)를 누르면 신청서에 있던 모든 (날짜,시프트)를 Assign/History에서 제거했는데, `getCurrentTwoWeekDateSet_()`이 계산하는 창(이번 주 월요일~13일 후)에는 이미 지난 이번 주 날짜도 포함되어 있어 이미 근무를 마친 배치 기록까지 함께 삭제되는 문제가 있었다. 바로 위 항목(3번)에서 `saveRecord`(부분 수정)에는 과거 날짜 보존 로직을 넣었지만 `deleteRecord`는 "통째로 취소하는 별개 동작"이라 보고 제외했었는데, 실제로는 과거 근무 이력까지 지워지는 게 문제로 확인되어 방침을 바꿨다. `deleteRecord`도 오늘 이전 날짜분은 `removeCanceledAssignments_`에 기존값 그대로 넘겨 삭제 대상에서 제외하도록 수정했다.
