@@ -59,6 +59,10 @@
   .side-by-side-col { flex: 0 0 auto; }
   table.week-table.compact { min-width: 340px; font-size: 11px; }
   table.week-table.compact th, table.week-table.compact td { padding: 4px 3px; }
+  table.week-table.compact tr:not(.gender-divider):nth-child(even) td,
+  table.week-table.compact tr:not(.gender-divider):nth-child(even) th { background: #f2f3f6; }
+  table.week-table.compact tr:not(.gender-divider):nth-child(odd) td,
+  table.week-table.compact tr:not(.gender-divider):nth-child(odd) th { background: #fff; }
   .reorder-btns { display: inline-flex; gap: 2px; margin-left: 4px; }
   .reorder-btn { cursor: pointer; font-size: 10px; color: #2f6fed; padding: 1px 3px; border-radius: 3px; background: #eef1ff; }
   tr.gender-divider td { background: #f0f2f5; font-weight: 700; font-size: 11px; color: #1a56db; }
@@ -218,10 +222,11 @@
         <div class="location-tab" id="subtabBoard" onclick="switchAdminSubView('board')">📋 배치판 보기</div>
         <div class="location-tab" id="subtabRoster" onclick="switchAdminSubView('roster')">👥 전체신청자 목록</div>
       </div>
-      <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
-        <button class="primary" style="width:auto; padding:6px 14px; margin-top:0;" onclick="saveAllOnScreen()">💾 전체 저장</button>
-        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
-        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="refreshAdminSubView()">🔄 새로고침</button>
+      <div style="display:flex; justify-content:flex-start; gap:8px; margin-bottom:8px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; position:sticky; top:0; z-index:50; background:#f4f5f7; padding:8px 0; box-shadow:0 2px 4px rgba(0,0,0,0.08);">
+        <button class="primary" style="width:auto; padding:6px 14px; margin-top:0; flex-shrink:0; white-space:nowrap;" onclick="saveAllOnScreen()">💾 전체 저장</button>
+        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
+        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="refreshAdminSubView()">🔄 새로고침</button>
+        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="adminLogout()">🚪 로그아웃</button>
       </div>
       <div id="saveAllMsg" style="text-align:right; margin-bottom:8px;"></div>
 
@@ -274,32 +279,35 @@
   </div>
 
   <div id="adminAddOverlay" class="edit-overlay" style="display:none;">
-    <div class="edit-overlay-card">
-      <div class="edit-overlay-title">근무자 추가 (신청 누락자 등록)</div>
-      <div class="period-caption">기존 근무자 이름을 입력하면 인적사항이 자동으로 채워집니다.</div>
-      <label>이름</label>
-      <input type="text" id="adminAddName" list="adminAddNameList" placeholder="홍길동">
-      <datalist id="adminAddNameList"></datalist>
-      <label>생년월일 6자리</label>
-      <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
-      <label>연락처</label>
-      <input type="tel" id="adminAddPhone" placeholder="010-0000-0000">
-      <label>성별</label>
-      <div id="adminAddGenderRadios" class="location-checkboxes"></div>
-      <label>근무 장소</label>
-      <div id="adminAddLocationRadios" class="location-checkboxes"></div>
-      <label>근무 일정</label>
-      <div id="adminAddDateList"></div>
-      <button class="secondary" id="adminAddStageBtn" onclick="stageAdminAddRecord()">+ 목록에 추가</button>
-      <div id="adminAddMsg"></div>
+    <div class="edit-overlay-card" style="position:relative; padding:0; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
+      <button onclick="closeAdminAddOverlay()" style="position:absolute; top:10px; right:12px; border:none; background:none; font-size:20px; line-height:1; cursor:pointer; color:#888;">&times;</button>
+      <div style="overflow-y:auto; padding:18px;">
+        <div class="edit-overlay-title">근무자 추가 (신청 누락자 등록)</div>
+        <div class="period-caption">기존 근무자 이름을 입력하면 인적사항이 자동으로 채워집니다.</div>
+        <label>이름</label>
+        <input type="text" id="adminAddName" list="adminAddNameList" placeholder="홍길동">
+        <datalist id="adminAddNameList"></datalist>
+        <label>생년월일 6자리</label>
+        <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
+        <label>연락처</label>
+        <input type="tel" id="adminAddPhone" placeholder="010-0000-0000">
+        <label>성별</label>
+        <div id="adminAddGenderRadios" class="location-checkboxes"></div>
+        <label>근무 장소</label>
+        <div id="adminAddLocationRadios" class="location-checkboxes"></div>
+        <label>근무 일정</label>
+        <div id="adminAddDateList"></div>
+        <button class="secondary" id="adminAddStageBtn" onclick="stageAdminAddRecord()">+ 목록에 추가</button>
+        <div id="adminAddMsg"></div>
 
-      <div id="adminAddPendingWrap" style="margin-top:14px; display:none;">
-        <div style="font-weight:700; font-size:13px; margin-bottom:6px;">등록 대기 목록</div>
-        <div id="adminAddPendingList"></div>
-        <button class="primary" id="adminAddSubmitAllBtn" onclick="submitAllAdminAddRecords()">전체 등록 (0명)</button>
+        <div id="adminAddPendingWrap" style="margin-top:14px; display:none;">
+          <div style="font-weight:700; font-size:13px; margin-bottom:6px;">등록 대기 목록</div>
+          <div id="adminAddPendingList"></div>
+          <button class="primary" id="adminAddSubmitAllBtn" onclick="submitAllAdminAddRecords()">전체 등록 (0명)</button>
+        </div>
+
+        <button class="secondary" onclick="closeAdminAddOverlay()" style="margin-top:8px;">닫기</button>
       </div>
-
-      <button class="secondary" onclick="closeAdminAddOverlay()" style="margin-top:8px;">닫기</button>
     </div>
   </div>
 
@@ -323,6 +331,31 @@
 
 <script>
 const DAY_NAMES = ['일','월','화','수','목','금','토'];
+
+// ---- 새로고침해도 보던 스크롤 위치 유지 ----
+// 관리자 화면이었으면 데이터가 다 그려진 뒤에 복원해야 하므로 그쪽은 restoreScrollPending으로 미뤄둠
+let restoreScrollPending = false;
+if (localStorage.getItem('lastTab') !== 'admin') {
+  const savedScrollY = sessionStorage.getItem('scrollY');
+  if (savedScrollY !== null) window.scrollTo(0, parseInt(savedScrollY, 10));
+} else {
+  restoreScrollPending = true;
+}
+function applyPendingScrollRestore() {
+  if (!restoreScrollPending) return;
+  restoreScrollPending = false;
+  const y = sessionStorage.getItem('scrollY');
+  if (y !== null) requestAnimationFrame(function() { window.scrollTo(0, parseInt(y, 10)); });
+}
+let scrollSaveScheduled = false;
+window.addEventListener('scroll', function() {
+  if (scrollSaveScheduled) return;
+  scrollSaveScheduled = true;
+  requestAnimationFrame(function() {
+    sessionStorage.setItem('scrollY', window.scrollY);
+    scrollSaveScheduled = false;
+  });
+});
 
 // google.script.run 호출을 Promise로 감싸서 여러 개를 동시에 실행할 수 있게 함
 function runScript(fnName, ...args) {
@@ -699,6 +732,7 @@ function resetIdentity() {
 let adminSubView = 'board';
 
 function switchTab(tab) {
+  localStorage.setItem('lastTab', tab);
   document.getElementById('tabWorker').classList.toggle('active', tab==='worker');
   document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
   document.getElementById('workerView').style.display = tab==='worker' ? 'block' : 'none';
@@ -718,6 +752,7 @@ function switchTab(tab) {
 
 function switchAdminSubView(view) {
   adminSubView = view;
+  localStorage.setItem('lastAdminSubView', view);
   document.getElementById('subtabBoard').classList.toggle('active', view==='board');
   document.getElementById('subtabRoster').classList.toggle('active', view==='roster');
   document.getElementById('adminBoardArea').style.display = view==='board' ? 'block' : 'none';
@@ -727,6 +762,8 @@ function switchAdminSubView(view) {
 }
 
 function refreshAdminSubView() {
+  sessionStorage.setItem('scrollY', window.scrollY);
+  restoreScrollPending = true;
   switchAdminSubView(adminSubView);
 }
 
@@ -739,6 +776,7 @@ function checkAdminPw() {
       if (ok) {
         adminAuthenticated = true;
         adminPassword = pw;
+        localStorage.setItem('adminPassword', pw);
         document.getElementById('adminLoginCard').style.display = 'none';
         document.getElementById('adminMainArea').style.display = 'block';
         switchAdminSubView('board');
@@ -750,6 +788,16 @@ function checkAdminPw() {
       msgEl.innerHTML = '<div class="msg err">오류: ' + err.message + '</div>';
     })
     .checkAdminPassword(pw);
+}
+
+// 공용 PC 등에서 로그아웃해 저장된 비밀번호를 지우고 다음 방문 때 자동 로그인되지 않게 함
+function adminLogout() {
+  adminAuthenticated = false;
+  adminPassword = '';
+  localStorage.removeItem('adminPassword');
+  document.getElementById('adminPw').value = '';
+  document.getElementById('adminPwMsg').innerHTML = '';
+  switchTab('worker');
 }
 
 // ---------- 관리자 화면 ----------
@@ -1658,6 +1706,7 @@ function renderRoster() {
 
   if (merged.length === 0) {
     content.innerHTML = '<div class="empty">신청자가 없습니다.</div>';
+    applyPendingScrollRestore();
     return;
   }
 
@@ -1688,6 +1737,7 @@ function renderRoster() {
   html += '</table></div>';
   content.innerHTML = html;
   addScrollArrows(content);
+  applyPendingScrollRestore();
 }
 
 function toggleAllRoster(cb) {
@@ -1706,6 +1756,26 @@ function saveRosterRow(key) {
 // ---- 과거 이력(월별) 직접 입력 ----
 let pastHistoryKey = null;
 
+// ---- 모바일 뒤로가기로 팝업 닫기 ----
+let overlayHistoryPushed = false;
+function pushOverlayHistory() {
+  overlayHistoryPushed = true;
+  history.pushState({ overlayOpen: true }, '');
+}
+function consumeOverlayHistory() {
+  if (overlayHistoryPushed) {
+    overlayHistoryPushed = false;
+    history.back();
+  }
+}
+window.addEventListener('popstate', function() {
+  if (!overlayHistoryPushed) return;
+  overlayHistoryPushed = false;
+  if (document.getElementById('pastHistoryOverlay').style.display === 'flex') closePastHistoryOverlay();
+  else if (document.getElementById('adminAddOverlay').style.display === 'flex') closeAdminAddOverlay();
+  else if (document.getElementById('adminEditOverlay').style.display === 'flex') closeAdminEditOverlay();
+});
+
 function openPastHistoryEditor(key, name) {
   pastHistoryKey = key;
   document.getElementById('pastHistoryTitle').textContent = name + '님 과거 이력 입력';
@@ -1714,6 +1784,7 @@ function openPastHistoryEditor(key, name) {
   document.getElementById('newPmDays').value = '';
   refreshPastHistoryList();
   document.getElementById('pastHistoryOverlay').style.display = 'flex';
+  pushOverlayHistory();
 }
 
 function refreshPastHistoryList() {
@@ -1769,6 +1840,7 @@ function closePastHistoryOverlay() {
   document.getElementById('pastHistoryOverlay').style.display = 'none';
   pastHistoryKey = null;
   loadRoster();
+  consumeOverlayHistory();
 }
 
 function sendSingleSms(phone, consented) {
@@ -1853,6 +1925,7 @@ function openAdminAddOverlay() {
   buildAdminAddDateList(null);
 
   document.getElementById('adminAddOverlay').style.display = 'flex';
+  pushOverlayHistory();
 
   if (adminAddAutosaveTimer) clearInterval(adminAddAutosaveTimer);
   adminAddAutosaveTimer = setInterval(autosaveAdminAddPending, autosaveTerm * 1000);
@@ -1898,6 +1971,7 @@ function removeAdminAddPending(idx) {
 function closeAdminAddOverlay() {
   document.getElementById('adminAddOverlay').style.display = 'none';
   if (adminAddAutosaveTimer) { clearInterval(adminAddAutosaveTimer); adminAddAutosaveTimer = null; }
+  consumeOverlayHistory();
 }
 
 function renderAdminAddGender(selected) {
@@ -2089,6 +2163,7 @@ function openAdminEditShifts(key, name) {
   });
 
   document.getElementById('adminEditOverlay').style.display = 'flex';
+  pushOverlayHistory();
 }
 
 function toggleAdminEditShift(key, type) {
@@ -2099,6 +2174,7 @@ function toggleAdminEditShift(key, type) {
 function closeAdminEditOverlay() {
   document.getElementById('adminEditOverlay').style.display = 'none';
   adminEditKey = null;
+  consumeOverlayHistory();
 }
 
 function saveAdminShiftsEdit() {
@@ -2407,14 +2483,6 @@ function renderAdmin(records, assignments, targets) {
   html += buildInfoEditToolbar();
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
-  if (filteredRecords.length === 0) {
-    html += '<div class="admin-section-title">날짜별 집계</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
-  } else {
-    html += '<div class="admin-section-title">날짜별 집계</div>';
-    html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
-    html += buildWeekTable(week1, byDate, '1주차', keyToWeek1Count);
-    html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
-  }
 
   // 신청 전체 취소로 Data에서 사라진 근무자라도, 지난 배치 기록(Assign)의 근무지가 현재 필터와
   // 일치하면 배치판에서 계속 보이도록 allowedKeys에 함께 포함한다.
@@ -2429,12 +2497,22 @@ function renderAdmin(records, assignments, targets) {
     html += buildApplicantTable(filteredRecords, week2Set, '2주차', w2Start, w2End);
   }
 
+  if (filteredRecords.length === 0) {
+    html += '<div class="admin-section-title">날짜별 집계</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
+  } else {
+    html += '<div class="admin-section-title">날짜별 집계</div>';
+    html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
+    html += buildWeekTable(week1, byDate, '1주차', keyToWeek1Count);
+    html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
+  }
+
   content.innerHTML = html;
   addScrollArrows(content);
   syncDateEditToolbar();
   applyPendingCellStyles();
   syncInfoEditToolbar();
   applyPendingInfoCellStyles();
+  applyPendingScrollRestore();
 }
 renderLocationCheckboxes([]);
 renderGenderRadios('');
@@ -2446,6 +2524,24 @@ setInterval(function() {
     saveAllOnScreen();
   }
 }, 5 * 60 * 1000);
+
+// ---- 브라우저를 껐다 켜도 관리자 로그인/화면 유지 ----
+// 비밀번호를 localStorage에 저장해뒀다가 서버에 재검증해서 통과하면 로그인 화면을 건너뛰고
+// 보고 있던 서브뷰(게시판/명단)로 바로 이동시킴. 실패하면 저장된 값을 지우고 그대로 로그인 화면 표시.
+(function restoreAdminSession() {
+  const savedPw = localStorage.getItem('adminPassword');
+  if (!savedPw || localStorage.getItem('lastTab') !== 'admin') return;
+  adminRun()
+    .withSuccessHandler(function(ok) {
+      if (!ok) { localStorage.removeItem('adminPassword'); return; }
+      adminAuthenticated = true;
+      adminPassword = savedPw;
+      adminSubView = localStorage.getItem('lastAdminSubView') || 'board';
+      switchTab('admin');
+    })
+    .withFailureHandler(function() { localStorage.removeItem('adminPassword'); })
+    .checkAdminPassword(savedPw);
+})();
 </script>
 </body>
 </html>
