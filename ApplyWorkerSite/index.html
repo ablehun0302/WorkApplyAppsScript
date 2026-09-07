@@ -278,32 +278,35 @@
   </div>
 
   <div id="adminAddOverlay" class="edit-overlay" style="display:none;">
-    <div class="edit-overlay-card">
-      <div class="edit-overlay-title">근무자 추가 (신청 누락자 등록)</div>
-      <div class="period-caption">기존 근무자 이름을 입력하면 인적사항이 자동으로 채워집니다.</div>
-      <label>이름</label>
-      <input type="text" id="adminAddName" list="adminAddNameList" placeholder="홍길동">
-      <datalist id="adminAddNameList"></datalist>
-      <label>생년월일 6자리</label>
-      <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
-      <label>연락처</label>
-      <input type="tel" id="adminAddPhone" placeholder="010-0000-0000">
-      <label>성별</label>
-      <div id="adminAddGenderRadios" class="location-checkboxes"></div>
-      <label>근무 장소</label>
-      <div id="adminAddLocationRadios" class="location-checkboxes"></div>
-      <label>근무 일정</label>
-      <div id="adminAddDateList"></div>
-      <button class="secondary" id="adminAddStageBtn" onclick="stageAdminAddRecord()">+ 목록에 추가</button>
-      <div id="adminAddMsg"></div>
+    <div class="edit-overlay-card" style="position:relative; padding:0; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
+      <button onclick="closeAdminAddOverlay()" style="position:absolute; top:10px; right:12px; border:none; background:none; font-size:20px; line-height:1; cursor:pointer; color:#888;">&times;</button>
+      <div style="overflow-y:auto; padding:18px;">
+        <div class="edit-overlay-title">근무자 추가 (신청 누락자 등록)</div>
+        <div class="period-caption">기존 근무자 이름을 입력하면 인적사항이 자동으로 채워집니다.</div>
+        <label>이름</label>
+        <input type="text" id="adminAddName" list="adminAddNameList" placeholder="홍길동">
+        <datalist id="adminAddNameList"></datalist>
+        <label>생년월일 6자리</label>
+        <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
+        <label>연락처</label>
+        <input type="tel" id="adminAddPhone" placeholder="010-0000-0000">
+        <label>성별</label>
+        <div id="adminAddGenderRadios" class="location-checkboxes"></div>
+        <label>근무 장소</label>
+        <div id="adminAddLocationRadios" class="location-checkboxes"></div>
+        <label>근무 일정</label>
+        <div id="adminAddDateList"></div>
+        <button class="secondary" id="adminAddStageBtn" onclick="stageAdminAddRecord()">+ 목록에 추가</button>
+        <div id="adminAddMsg"></div>
 
-      <div id="adminAddPendingWrap" style="margin-top:14px; display:none;">
-        <div style="font-weight:700; font-size:13px; margin-bottom:6px;">등록 대기 목록</div>
-        <div id="adminAddPendingList"></div>
-        <button class="primary" id="adminAddSubmitAllBtn" onclick="submitAllAdminAddRecords()">전체 등록 (0명)</button>
+        <div id="adminAddPendingWrap" style="margin-top:14px; display:none;">
+          <div style="font-weight:700; font-size:13px; margin-bottom:6px;">등록 대기 목록</div>
+          <div id="adminAddPendingList"></div>
+          <button class="primary" id="adminAddSubmitAllBtn" onclick="submitAllAdminAddRecords()">전체 등록 (0명)</button>
+        </div>
+
+        <button class="secondary" onclick="closeAdminAddOverlay()" style="margin-top:8px;">닫기</button>
       </div>
-
-      <button class="secondary" onclick="closeAdminAddOverlay()" style="margin-top:8px;">닫기</button>
     </div>
   </div>
 
@@ -1710,6 +1713,26 @@ function saveRosterRow(key) {
 // ---- 과거 이력(월별) 직접 입력 ----
 let pastHistoryKey = null;
 
+// ---- 모바일 뒤로가기로 팝업 닫기 ----
+let overlayHistoryPushed = false;
+function pushOverlayHistory() {
+  overlayHistoryPushed = true;
+  history.pushState({ overlayOpen: true }, '');
+}
+function consumeOverlayHistory() {
+  if (overlayHistoryPushed) {
+    overlayHistoryPushed = false;
+    history.back();
+  }
+}
+window.addEventListener('popstate', function() {
+  if (!overlayHistoryPushed) return;
+  overlayHistoryPushed = false;
+  if (document.getElementById('pastHistoryOverlay').style.display === 'flex') closePastHistoryOverlay();
+  else if (document.getElementById('adminAddOverlay').style.display === 'flex') closeAdminAddOverlay();
+  else if (document.getElementById('adminEditOverlay').style.display === 'flex') closeAdminEditOverlay();
+});
+
 function openPastHistoryEditor(key, name) {
   pastHistoryKey = key;
   document.getElementById('pastHistoryTitle').textContent = name + '님 과거 이력 입력';
@@ -1718,6 +1741,7 @@ function openPastHistoryEditor(key, name) {
   document.getElementById('newPmDays').value = '';
   refreshPastHistoryList();
   document.getElementById('pastHistoryOverlay').style.display = 'flex';
+  pushOverlayHistory();
 }
 
 function refreshPastHistoryList() {
@@ -1773,6 +1797,7 @@ function closePastHistoryOverlay() {
   document.getElementById('pastHistoryOverlay').style.display = 'none';
   pastHistoryKey = null;
   loadRoster();
+  consumeOverlayHistory();
 }
 
 function sendSingleSms(phone, consented) {
@@ -1857,6 +1882,7 @@ function openAdminAddOverlay() {
   buildAdminAddDateList(null);
 
   document.getElementById('adminAddOverlay').style.display = 'flex';
+  pushOverlayHistory();
 
   if (adminAddAutosaveTimer) clearInterval(adminAddAutosaveTimer);
   adminAddAutosaveTimer = setInterval(autosaveAdminAddPending, autosaveTerm * 1000);
@@ -1902,6 +1928,7 @@ function removeAdminAddPending(idx) {
 function closeAdminAddOverlay() {
   document.getElementById('adminAddOverlay').style.display = 'none';
   if (adminAddAutosaveTimer) { clearInterval(adminAddAutosaveTimer); adminAddAutosaveTimer = null; }
+  consumeOverlayHistory();
 }
 
 function renderAdminAddGender(selected) {
@@ -2093,6 +2120,7 @@ function openAdminEditShifts(key, name) {
   });
 
   document.getElementById('adminEditOverlay').style.display = 'flex';
+  pushOverlayHistory();
 }
 
 function toggleAdminEditShift(key, type) {
@@ -2103,6 +2131,7 @@ function toggleAdminEditShift(key, type) {
 function closeAdminEditOverlay() {
   document.getElementById('adminEditOverlay').style.display = 'none';
   adminEditKey = null;
+  consumeOverlayHistory();
 }
 
 function saveAdminShiftsEdit() {
