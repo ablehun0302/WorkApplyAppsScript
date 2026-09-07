@@ -108,6 +108,43 @@ function removeHistory_(key, date) {
   if (row > -1) sheet.deleteRow(row);
 }
 
+// logHistory_/removeHistory_를 루프 안에서 건별로 호출하면 매번 History 시트를 통째로 다시 읽게 되므로,
+// 여러 건을 처리할 때는 시트를 한 번만 읽어서 처리하는 아래 배치 버전을 사용한다.
+function batchLogHistory_(items) {
+  if (!items || items.length === 0) return;
+  const sheet = getHistorySheet_();
+  const data = sheet.getDataRange().getValues();
+  const existing = new Set();
+  for (let i = 1; i < data.length; i++) existing.add(data[i][0]);
+
+  const seen = new Set();
+  const newRows = [];
+  items.forEach(item => {
+    const histKey = item.key + '_' + item.date;
+    if (existing.has(histKey) || seen.has(histKey)) return;
+    seen.add(histKey);
+    newRows.push([histKey, item.key, item.date]);
+  });
+  if (newRows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 3).setValues(newRows);
+  }
+}
+
+function batchRemoveHistory_(items) {
+  if (!items || items.length === 0) return;
+  const sheet = getHistorySheet_();
+  const data = sheet.getDataRange().getValues();
+  const keyToRow = {};
+  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+
+  const rowsToDelete = new Set();
+  items.forEach(item => {
+    const row = keyToRow[item.key + '_' + item.date];
+    if (row) rowsToDelete.add(row);
+  });
+  Array.from(rowsToDelete).sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
+}
+
 // 근로자 신청 화면(getTwoWeekDates, index.html)과 동일한 규칙(이번 주 월요일부터 14일)의
 // 날짜 집합을 서버에서 계산한다. 이 창 밖의 날짜는 애초에 화면에 보이지 않으므로 신청 수정 시
 // shifts에 안 들어있어도 "취소"가 아니라 단순히 편집 대상이 아니었던 것으로 봐야 한다.
@@ -133,19 +170,35 @@ function removeCanceledAssignments_(key, oldShifts, newShifts) {
   const currentWindow = getCurrentTwoWeekDateSet_();
   const newMap = {};
   (newShifts || []).forEach(s => { newMap[s.date] = s; });
+
+  // 날짜 수만큼 findRow_(=시트 전체 재조회)가 반복 호출되는 것을 막기 위해
+  // Assign 시트를 한 번만 읽어 메모리에서 처리한다.
   const asheet = getAssignSheet_();
+  const aData = asheet.getDataRange().getValues();
+  const assignKeyToRow = {};
+  for (let i = 1; i < aData.length; i++) assignKeyToRow[aData[i][0]] = i + 1;
+
+  const rowsToDelete = [];
+  const historyRemovals = [];
   (oldShifts || []).forEach(old => {
     if (!currentWindow.has(old.date)) return; // 화면에 안 보이는(지난 주 이전) 날짜는 취소로 보지 않는다
     const cur = newMap[old.date] || {};
     ['day', 'night'].forEach(shift => {
       if (!old[shift] || cur[shift]) return;
-      const row = findRow_(asheet, 0, makeAssignKey_(old.date, shift, key));
-      if (row > -1) asheet.deleteRow(row);
+      const assignKey = makeAssignKey_(old.date, shift, key);
+      const row = assignKeyToRow[assignKey];
+      if (row) {
+        rowsToDelete.push(row);
+        delete assignKeyToRow[assignKey];
+      }
       const otherShift = shift === 'day' ? 'night' : 'day';
-      const stillHas = findRow_(asheet, 0, makeAssignKey_(old.date, otherShift, key)) > -1;
-      if (!stillHas) removeHistory_(key, old.date);
+      const stillHas = !!assignKeyToRow[makeAssignKey_(old.date, otherShift, key)];
+      if (!stillHas) historyRemovals.push({ key: key, date: old.date });
     });
   });
+
+  rowsToDelete.sort((a, b) => b - a).forEach(row => asheet.deleteRow(row));
+  batchRemoveHistory_(historyRemovals);
 }
 
 function getPastMonthlySheet_() {
@@ -361,9 +414,10 @@ function batchSaveRecords(list, adminPw) {
       let existingAdminGender = '';
       let existingAdConsent = '';
       if (row) {
-        existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
-        existingAdminGender = sheet.getRange(row, 11).getValue() || '';
-        existingAdConsent = sheet.getRange(row, 12).getValue() || '';
+        // 위에서 이미 읽어둔 data 배열에 있는 값이므로 getRange().getValue()로 다시 조회하지 않는다.
+        existingAdminLocation = data[row - 1][7] || '';
+        existingAdminGender = data[row - 1][10] || '';
+        existingAdConsent = data[row - 1][11] || '';
       }
       const rowData = [
         key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
@@ -761,8 +815,10 @@ function batchSaveAssignments(list, adminPw) {
       } else {
         sheet.getRange(row, 1, 1, 11).setValues([rowData]);
       }
-      logHistory_(item.key, item.date);
     });
+
+    // logHistory_를 item마다 호출하면 매번 History 시트를 통째로 재조회하므로 배치 버전으로 한 번에 처리
+    batchLogHistory_(list.map(item => ({ key: item.key, date: item.date })));
   } finally {
     lock.releaseLock();
   }
@@ -800,13 +856,18 @@ function batchRemoveAssignments(list, adminPw) {
   });
   rowsToDelete.sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
 
-  // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거
+  // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거.
+  // findRow_(=시트 전체 재조회)를 item마다 부르는 대신, 이미 위에서 읽어둔 keyToRow/rowsToDelete로 판단한다.
+  const deletedRows = new Set(rowsToDelete);
+  const historyRemovals = [];
   list.forEach(item => {
     const otherShift = item.shift === 'day' ? 'night' : 'day';
     const otherAssignKey = makeAssignKey_(item.date, otherShift, item.key);
-    const stillHas = findRow_(sheet, 0, otherAssignKey) > -1;
-    if (!stillHas) removeHistory_(item.key, item.date);
+    const otherRow = keyToRow[otherAssignKey];
+    const stillHas = !!otherRow && !deletedRows.has(otherRow);
+    if (!stillHas) historyRemovals.push({ key: item.key, date: item.date });
   });
+  batchRemoveHistory_(historyRemovals);
   return true;
 }
 
