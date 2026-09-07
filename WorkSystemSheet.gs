@@ -442,7 +442,6 @@ function batchSaveRecords(list, adminPw) {
     lock.releaseLock();
   }
 
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -481,7 +480,6 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   }
   // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
   removeCanceledAssignments_(key, oldShifts, mergedShifts);
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -520,7 +518,6 @@ function batchSetLocations(list, adminPw) {
     const row = keyToRow[item.key];
     if (row) sheet.getRange(row, 8).setValue(item.location || '');
   });
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -588,7 +585,6 @@ function adminUpdateShifts(key, shifts, adminPw) {
   const row = findRow_(sheet, 0, key);
   if (row === -1) return false;
   sheet.getRange(row, 6).setValue(JSON.stringify(shifts));
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -611,7 +607,6 @@ function setContactInfo(oldKey, phone, newPin, adminPw) {
     sheet.getRange(row, 1).setValue(newKey);
     reKeyRelatedSheets_(oldKey, newKey);
   }
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -659,7 +654,6 @@ function setAdminLocation(key, location, adminPw) {
   const row = findRow_(sheet, 0, key);
   if (row === -1) return false;
   sheet.getRange(row, 8).setValue(location || '');
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -677,7 +671,6 @@ function deleteRecord(name, pin) {
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const pastOldShifts = oldShifts.filter(s => s.date < todayStr);
   removeCanceledAssignments_(key, oldShifts, pastOldShifts);
-  rebuildLocationSheets_();
   return true;
 }
 
@@ -713,7 +706,8 @@ function getAdminData(adminPw) {
   return records;
 }
 
-// 근무 장소별로 별도 시트에 데이터 복제 (신청/수정/취소 시마다 전체 재구성)
+// [Deprecated] 근무 장소별로 별도 시트에 데이터 복제 (신청/수정/취소 시마다 전체 재구성)
+// 웹앱에서만 데이터를 조회하고 이 시트들을 직접 보는 곳이 없어 호출부를 모두 제거함. 함수는 참고용으로 남겨둠.
 function rebuildLocationSheets_() {
   const ss = getSpreadsheet_();
   const dataSheet = getDataSheet_();
