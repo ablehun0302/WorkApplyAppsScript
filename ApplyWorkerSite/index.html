@@ -2483,14 +2483,6 @@ function renderAdmin(records, assignments, targets) {
   html += buildInfoEditToolbar();
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
-  if (filteredRecords.length === 0) {
-    html += '<div class="admin-section-title">날짜별 집계</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
-  } else {
-    html += '<div class="admin-section-title">날짜별 집계</div>';
-    html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
-    html += buildWeekTable(week1, byDate, '1주차', keyToWeek1Count);
-    html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
-  }
 
   // 신청 전체 취소로 Data에서 사라진 근무자라도, 지난 배치 기록(Assign)의 근무지가 현재 필터와
   // 일치하면 배치판에서 계속 보이도록 allowedKeys에 함께 포함한다.
@@ -2503,6 +2495,15 @@ function renderAdmin(records, assignments, targets) {
   if (filteredRecords.length > 0) {
     html += buildApplicantTable(filteredRecords, week1Set, '1주차', w1Start, w1End);
     html += buildApplicantTable(filteredRecords, week2Set, '2주차', w2Start, w2End);
+  }
+
+  if (filteredRecords.length === 0) {
+    html += '<div class="admin-section-title">날짜별 집계</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
+  } else {
+    html += '<div class="admin-section-title">날짜별 집계</div>';
+    html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
+    html += buildWeekTable(week1, byDate, '1주차', keyToWeek1Count);
+    html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
   }
 
   content.innerHTML = html;
