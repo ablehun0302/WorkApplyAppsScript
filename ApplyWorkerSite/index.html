@@ -222,11 +222,11 @@
         <div class="location-tab" id="subtabBoard" onclick="switchAdminSubView('board')">📋 배치판 보기</div>
         <div class="location-tab" id="subtabRoster" onclick="switchAdminSubView('roster')">👥 전체신청자 목록</div>
       </div>
-      <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; flex-wrap:wrap; position:sticky; top:0; z-index:50; background:#f4f5f7; padding:8px 0; box-shadow:0 2px 4px rgba(0,0,0,0.08);">
-        <button class="primary" style="width:auto; padding:6px 14px; margin-top:0;" onclick="saveAllOnScreen()">💾 전체 저장</button>
-        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
-        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="refreshAdminSubView()">🔄 새로고침</button>
-        <button class="secondary" style="width:auto; padding:6px 12px;" onclick="adminLogout()">🚪 로그아웃</button>
+      <div style="display:flex; justify-content:flex-start; gap:8px; margin-bottom:8px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; position:sticky; top:0; z-index:50; background:#f4f5f7; padding:8px 0; box-shadow:0 2px 4px rgba(0,0,0,0.08);">
+        <button class="primary" style="width:auto; padding:6px 14px; margin-top:0; flex-shrink:0; white-space:nowrap;" onclick="saveAllOnScreen()">💾 전체 저장</button>
+        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
+        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="refreshAdminSubView()">🔄 새로고침</button>
+        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="adminLogout()">🚪 로그아웃</button>
       </div>
       <div id="saveAllMsg" style="text-align:right; margin-bottom:8px;"></div>
 
