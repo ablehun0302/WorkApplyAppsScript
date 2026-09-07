@@ -349,14 +349,16 @@ function applyPendingScrollRestore() {
   const y = sessionStorage.getItem('scrollY');
   if (y !== null) requestAnimationFrame(function() { window.scrollTo(0, parseInt(y, 10)); });
 }
-let scrollSaveScheduled = false;
-window.addEventListener('scroll', function() {
-  if (scrollSaveScheduled) return;
-  scrollSaveScheduled = true;
-  requestAnimationFrame(function() {
-    sessionStorage.setItem('scrollY', window.scrollY);
-    scrollSaveScheduled = false;
-  });
+// 근무자 배치/수정 등 데이터 변경 후 loadAdmin()/loadRoster()로 다시 그리기 직전에 호출해
+// 현재 스크롤 위치를 저장해두면, 렌더링이 끝난 뒤 applyPendingScrollRestore()가 복원해줌
+function saveScrollForRefresh() {
+  sessionStorage.setItem('scrollY', window.scrollY);
+  restoreScrollPending = true;
+}
+// 스크롤할 때마다 계속 저장하면 AJAX 로딩중 화면이 잠깐 줄어들 때 생기는 강제 스크롤까지
+// 저장해버릴 수 있으므로, 실제로 새로고침(F5)해서 페이지를 떠나기 직전에만 한 번 저장
+window.addEventListener('beforeunload', function() {
+  sessionStorage.setItem('scrollY', window.scrollY);
 });
 
 // google.script.run 호출을 Promise로 감싸서 여러 개를 동시에 실행할 수 있게 함
@@ -856,7 +858,7 @@ function setCellFloor(dateStr, shiftKey, key, floor) {
   const isNew = existing ? existing.isNew : false;
   const isWomenWage = existing ? existing.isWomenWage : false;
   adminRun()
-    .withSuccessHandler(function() { closeFloorMenu(); loadAdmin(); })
+    .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
 }
@@ -897,7 +899,7 @@ function showLocationMenu(evt, key) {
 
 function moveWorkerLocation(key, location) {
   adminRun()
-    .withSuccessHandler(function() { closeLocationMenu(); loadAdmin(); })
+    .withSuccessHandler(function() { closeLocationMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 장소 이동 오류: ' + err.message); })
     .setAdminLocation(key, location, adminPassword);
 }
@@ -907,7 +909,7 @@ function cancelWorkerApplicationCore_(key, onDone) {
   if (!rec) return;
   if (!confirm(rec.name + '님의 이번 신청을 전체 취소하시겠습니까? 되돌릴 수 없습니다.')) return;
   adminRun()
-    .withSuccessHandler(function() { onDone(); loadAdmin(); })
+    .withSuccessHandler(function() { onDone(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('근무 취소 오류: ' + err.message); })
     .deleteRecord(rec.name, rec.pin);
 }
@@ -1066,6 +1068,7 @@ function saveAllOnScreen() {
     if (idx >= tasks.length) {
       msgEl.textContent = '✅ 전체 저장 완료';
       setTimeout(() => { msgEl.textContent = ''; }, 2500);
+      saveScrollForRefresh();
       if (adminSubView === 'roster') loadRoster(); else loadAdmin();
       return;
     }
@@ -1110,7 +1113,7 @@ function saveBatchGender() {
     return;
   }
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>'; })
     .batchSetGender(list, adminPassword);
 }
@@ -1281,6 +1284,7 @@ function saveDateEditChanges() {
       pendingDateChanges = {};
       dateEditMode = false;
       document.body.classList.remove('date-edit-mode');
+      saveScrollForRefresh();
       loadAdmin();
       return;
     }
@@ -1499,6 +1503,7 @@ function saveInfoEditChanges() {
       pendingInfoChanges = {};
       infoEditMode = false;
       document.body.classList.remove('info-edit-mode');
+      saveScrollForRefresh();
       loadAdmin();
     })
     .withFailureHandler(function(err) {
@@ -1510,7 +1515,7 @@ function saveInfoEditChanges() {
 
 function reorderWorker(keyA, keyB) {
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('순서 변경 오류: ' + err.message); })
     .swapSortOrder(keyA, keyB, adminPassword);
 }
@@ -1589,7 +1594,7 @@ function saveAdminRow(key, genderSelId, locSelId) {
   adminRun()
     .withSuccessHandler(function() {
       adminRun()
-        .withSuccessHandler(function() { loadAdmin(); })
+        .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
         .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
         .setAdminLocation(key, location, adminPassword);
     })
@@ -1600,7 +1605,7 @@ function saveAdminRow(key, genderSelId, locSelId) {
 function saveAdminGender(key, selId) {
   const val = document.getElementById(selId).value;
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('성별 저장 오류: ' + err.message); })
     .setAdminGender(key, val, adminPassword);
 }
@@ -1625,7 +1630,7 @@ function batchSaveApplicantLocations(tableId) {
     list.push({ key: key, location: sel.value });
   });
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('일괄저장 오류: ' + err.message); })
     .batchSetLocations(list, adminPassword);
 }
@@ -1841,6 +1846,7 @@ function deletePastHistoryEntry(ym) {
 function closePastHistoryOverlay() {
   document.getElementById('pastHistoryOverlay').style.display = 'none';
   pastHistoryKey = null;
+  saveScrollForRefresh();
   loadRoster();
   consumeOverlayHistory();
 }
@@ -2111,6 +2117,7 @@ function submitAllAdminAddRecords() {
     .then(function() {
       hideLoading();
       closeAdminAddOverlay();
+      saveScrollForRefresh();
       loadAdmin();
     })
     .catch(function(err) {
@@ -2203,6 +2210,7 @@ function saveAdminShiftsEdit() {
       adminRun()
         .withSuccessHandler(function() {
           closeAdminEditOverlay();
+          saveScrollForRefresh();
           loadAdmin();
         })
         .withFailureHandler(function(err) {
@@ -2348,7 +2356,7 @@ function saveTargetClick(date, shift) {
   const maleTarget = document.getElementById(`mt_${date}_${shift}`).value;
   const femaleTarget = document.getElementById(`ft_${date}_${shift}`).value;
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('목표 저장 오류: ' + err.message); })
     .saveTarget(date, shift, maleTarget, femaleTarget, adminPassword);
 }
@@ -2378,7 +2386,7 @@ function batchAssign(dateStr, shift) {
     list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
   });
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('일괄배치 오류: ' + err.message); })
     .batchSaveAssignments(list, adminPassword);
 }
@@ -2387,7 +2395,7 @@ function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWom
   const rec = lastRecords.find(r => r.key === key);
   const name = rec ? rec.name : '';
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
     .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
 }
@@ -2407,7 +2415,7 @@ function batchUnassign(dateStr, shift) {
   if (checked.length === 0) { alert('배치취소할 사람을 먼저 체크해주세요.'); return; }
   const list = Array.from(checked).map(cb => ({ date: dateStr, shift: shift, key: cb.dataset.key }));
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치취소 오류: ' + err.message); })
     .batchRemoveAssignments(list, adminPassword);
 }
