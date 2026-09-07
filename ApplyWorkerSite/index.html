@@ -138,6 +138,9 @@
   .edit-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 999; padding: 16px; }
   .edit-overlay-card { background: white; border-radius: 14px; padding: 18px; max-width: 480px; width: 100%; max-height: 85vh; overflow-y: auto; }
   .edit-overlay-title { font-weight: 700; font-size: 16px; margin-bottom: 10px; }
+  .loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 3000; display: none; align-items: center; justify-content: center; }
+  .loading-spinner { width: 42px; height: 42px; border: 4px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: loading-spin 0.8s linear infinite; }
+  @keyframes loading-spin { to { transform: rotate(360deg); } }
   .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .unassigned-chip { display: flex; align-items: center; gap: 3px; background: #f4f5f7; border-radius: 8px; padding: 4px 6px; font-size: 11px; flex-wrap: wrap; }
   .unassigned-chip select { width: auto; padding: 3px; font-size: 11px; border-radius: 5px; }
@@ -316,6 +319,8 @@
   </div>
 </div>
 
+<div id="loadingOverlay" class="loading-overlay"><div class="loading-spinner"></div></div>
+
 <script>
 const DAY_NAMES = ['일','월','화','수','목','금','토'];
 
@@ -385,6 +390,46 @@ let lastRecords = [], lastAssignments = [], lastTargets = [];
 let currentLocationFilter = '전체';
 let adminAuthenticated = false;
 let adminPassword = ''; // 관리자 전용 서버 함수 호출 시 매번 함께 보내 서버에서 재검증
+
+// 관리자 화면에서 버튼을 눌러 서버 호출이 진행되는 동안 화면을 어둡게 덮어 로딩중임을 표시
+let loadingCount = 0;
+let loadingTimeoutId = null;
+const LOADING_TIMEOUT_MS = 40000; // saveRecord 등의 LockService 대기(최대 30초)보다 여유있게 설정
+function showLoading() {
+  loadingCount++;
+  document.getElementById('loadingOverlay').style.display = 'flex';
+  if (loadingCount === 1) {
+    loadingTimeoutId = setTimeout(function() {
+      loadingCount = 0;
+      document.getElementById('loadingOverlay').style.display = 'none';
+      alert('서버 응답이 지연되고 있습니다. 화면을 새로고침한 후 다시 시도해주세요.');
+    }, LOADING_TIMEOUT_MS);
+  }
+}
+function hideLoading() {
+  loadingCount = Math.max(0, loadingCount - 1);
+  if (loadingCount === 0) {
+    document.getElementById('loadingOverlay').style.display = 'none';
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
+}
+// google.script.run 대신 이걸 써서 호출하면 요청이 끝날 때(성공/실패 상관없이) 자동으로 로딩 오버레이가 사라짐
+function adminRun() {
+  showLoading();
+  return wrapAdminRunHandlers_(google.script.run);
+}
+function wrapAdminRunHandlers_(run) {
+  const origSuccess = run.withSuccessHandler.bind(run);
+  const origFailure = run.withFailureHandler.bind(run);
+  run.withSuccessHandler = function(fn) {
+    return wrapAdminRunHandlers_(origSuccess(function() { hideLoading(); if (fn) fn.apply(this, arguments); }));
+  };
+  run.withFailureHandler = function(fn) {
+    return wrapAdminRunHandlers_(origFailure(function() { hideLoading(); if (fn) fn.apply(this, arguments); }));
+  };
+  return run;
+}
 
 function formatDate(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -689,7 +734,7 @@ function checkAdminPw() {
   const pw = document.getElementById('adminPw').value;
   const msgEl = document.getElementById('adminPwMsg');
   msgEl.innerHTML = '';
-  google.script.run
+  adminRun()
     .withSuccessHandler(function(ok) {
       if (ok) {
         adminAuthenticated = true;
@@ -760,7 +805,7 @@ function setCellFloor(dateStr, shiftKey, key, floor) {
   const isEducation = existing ? existing.isEducation : false;
   const isNew = existing ? existing.isNew : false;
   const isWomenWage = existing ? existing.isWomenWage : false;
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { closeFloorMenu(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
@@ -801,7 +846,7 @@ function showLocationMenu(evt, key) {
 }
 
 function moveWorkerLocation(key, location) {
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { closeLocationMenu(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 장소 이동 오류: ' + err.message); })
     .setAdminLocation(key, location, adminPassword);
@@ -811,7 +856,7 @@ function cancelWorkerApplicationCore_(key, onDone) {
   const rec = lastRecords.find(r => r.key === key);
   if (!rec) return;
   if (!confirm(rec.name + '님의 이번 신청을 전체 취소하시겠습니까? 되돌릴 수 없습니다.')) return;
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { onDone(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('근무 취소 오류: ' + err.message); })
     .deleteRecord(rec.name, rec.pin);
@@ -975,7 +1020,7 @@ function saveAllOnScreen() {
       return;
     }
     const task = tasks[idx];
-    google.script.run
+    adminRun()
       .withSuccessHandler(function() { runNext(idx + 1); })
       .withFailureHandler(function(err) { msgEl.innerHTML = '<span style="color:#c0392b;">저장 오류: ' + err.message + '</span>'; })
       [task.fn](task.arg, adminPassword);
@@ -1014,7 +1059,7 @@ function saveBatchGender() {
     msgEl.innerHTML = '<div class="msg err">지정할 성별을 하나 이상 선택해주세요.</div>';
     return;
   }
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>'; })
     .batchSetGender(list, adminPassword);
@@ -1190,7 +1235,7 @@ function saveDateEditChanges() {
       return;
     }
     const key = keys[idx];
-    google.script.run
+    adminRun()
       .withSuccessHandler(function() { runNext(idx + 1); })
       .withFailureHandler(function(err) {
         statusEl.textContent = '저장 오류: ' + err.message;
@@ -1399,7 +1444,7 @@ function saveInfoEditChanges() {
   const saveBtn = document.getElementById('infoEditSaveBtn');
   saveBtn.disabled = true;
   statusEl.textContent = '저장 중...';
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() {
       pendingInfoChanges = {};
       infoEditMode = false;
@@ -1414,7 +1459,7 @@ function saveInfoEditChanges() {
 }
 
 function reorderWorker(keyA, keyB) {
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('순서 변경 오류: ' + err.message); })
     .swapSortOrder(keyA, keyB, adminPassword);
@@ -1491,9 +1536,9 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
 function saveAdminRow(key, genderSelId, locSelId) {
   const gender = document.getElementById(genderSelId).value;
   const location = document.getElementById(locSelId).value;
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() {
-      google.script.run
+      adminRun()
         .withSuccessHandler(function() { loadAdmin(); })
         .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
         .setAdminLocation(key, location, adminPassword);
@@ -1504,7 +1549,7 @@ function saveAdminRow(key, genderSelId, locSelId) {
 
 function saveAdminGender(key, selId) {
   const val = document.getElementById(selId).value;
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('성별 저장 오류: ' + err.message); })
     .setAdminGender(key, val, adminPassword);
@@ -1529,7 +1574,7 @@ function batchSaveApplicantLocations(tableId) {
     const sel = document.getElementById('locadmin_' + key);
     list.push({ key: key, location: sel.value });
   });
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('일괄저장 오류: ' + err.message); })
     .batchSetLocations(list, adminPassword);
@@ -1549,8 +1594,10 @@ function loadRoster() {
   if (locFilter && locFilter.options.length === 0) {
     locFilter.innerHTML = '<option value="">전체</option>' + LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
   }
+  showLoading();
   Promise.all([runScript('getAdminData', adminPassword), runScript('getRosterData', adminPassword), runScript('getWorkStats', adminPassword), runScript('getAssignments', adminPassword)])
     .then(function(results) {
+      hideLoading();
       lastRosterRecords = results[0] || [];
       lastRosterData = results[1] || [];
       lastRosterWorkStats = results[2] || {};
@@ -1558,6 +1605,7 @@ function loadRoster() {
       renderRoster();
     })
     .catch(function(err) {
+      hideLoading();
       content.innerHTML = '<div class="empty">불러오기 실패: ' + err.message + '</div>';
     });
 }
@@ -1649,7 +1697,7 @@ function toggleAllRoster(cb) {
 function saveRosterRow(key) {
   const health = document.getElementById('health_' + key).value;
   const hire = document.getElementById('hire_' + key).value;
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() {})
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveRosterEntry(key, health, hire, adminPassword);
@@ -1671,7 +1719,7 @@ function openPastHistoryEditor(key, name) {
 function refreshPastHistoryList() {
   const listEl = document.getElementById('pastHistoryList');
   listEl.innerHTML = '불러오는 중...';
-  google.script.run
+  adminRun()
     .withSuccessHandler(function(entries) {
       if (!entries || entries.length === 0) {
         listEl.innerHTML = '<div style="color:#999; font-size:13px;">입력된 과거 이력이 없습니다.</div>';
@@ -1698,7 +1746,7 @@ function addPastHistoryEntry() {
     msgEl.innerHTML = '<div class="msg err">월과 근로일수를 입력해주세요.</div>';
     return;
   }
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() {
       document.getElementById('newPmYearMonth').value = '';
       document.getElementById('newPmDays').value = '';
@@ -1711,7 +1759,7 @@ function addPastHistoryEntry() {
 }
 
 function deletePastHistoryEntry(ym) {
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { refreshPastHistoryList(); })
     .withFailureHandler(function(err) { alert('삭제 오류: ' + err.message); })
     .deletePastMonthly(pastHistoryKey, ym, adminPassword);
@@ -1736,7 +1784,7 @@ function sendSingleSms(phone, consented) {
 
   const msgEl = document.getElementById('smsMsg');
   msgEl.textContent = '발송 중...';
-  google.script.run
+  adminRun()
     .withSuccessHandler(function(result) {
       msgEl.textContent = `접수 완료 (성공 ${result.successCount}건 / 실패 ${result.errorCount}건)`;
       setTimeout(() => { msgEl.textContent = ''; }, 6000);
@@ -1765,7 +1813,7 @@ function sendBulkSms() {
 
   const msgEl = document.getElementById('smsMsg');
   msgEl.textContent = '발송 중...';
-  google.script.run
+  adminRun()
     .withSuccessHandler(function(result) {
       msgEl.textContent = `접수 완료 (성공 ${result.successCount}건 / 실패 ${result.errorCount}건)`;
       setTimeout(() => { msgEl.textContent = ''; }, 6000);
@@ -1982,12 +2030,15 @@ function submitAllAdminAddRecords() {
   btn.disabled = true;
   btn.textContent = '등록 중...';
 
+  showLoading();
   runScript('batchSaveRecords', adminAddPending, adminPassword)
     .then(function() {
+      hideLoading();
       closeAdminAddOverlay();
       loadAdmin();
     })
     .catch(function(err) {
+      hideLoading();
       btn.disabled = false;
       btn.textContent = `전체 등록 (${adminAddPending.length}명)`;
       msgEl.innerHTML = '<div class="msg err">등록 오류: ' + err.message + '</div>';
@@ -2063,9 +2114,9 @@ function saveAdminShiftsEdit() {
     return;
   }
 
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() {
-      google.script.run
+      adminRun()
         .withSuccessHandler(function() {
           closeAdminEditOverlay();
           loadAdmin();
@@ -2212,7 +2263,7 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
 function saveTargetClick(date, shift) {
   const maleTarget = document.getElementById(`mt_${date}_${shift}`).value;
   const femaleTarget = document.getElementById(`ft_${date}_${shift}`).value;
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('목표 저장 오류: ' + err.message); })
     .saveTarget(date, shift, maleTarget, femaleTarget, adminPassword);
@@ -2242,7 +2293,7 @@ function batchAssign(dateStr, shift) {
     const isWomenWage = document.getElementById(`w_${dateStr}_${shift}_${key}`).checked;
     list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
   });
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('일괄배치 오류: ' + err.message); })
     .batchSaveAssignments(list, adminPassword);
@@ -2251,7 +2302,7 @@ function batchAssign(dateStr, shift) {
 function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWomenWage) {
   const rec = lastRecords.find(r => r.key === key);
   const name = rec ? rec.name : '';
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
     .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
@@ -2271,7 +2322,7 @@ function batchUnassign(dateStr, shift) {
   const checked = container.querySelectorAll('.assigned-select:checked');
   if (checked.length === 0) { alert('배치취소할 사람을 먼저 체크해주세요.'); return; }
   const list = Array.from(checked).map(cb => ({ date: dateStr, shift: shift, key: cb.dataset.key }));
-  google.script.run
+  adminRun()
     .withSuccessHandler(function() { loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치취소 오류: ' + err.message); })
     .batchRemoveAssignments(list, adminPassword);
@@ -2296,14 +2347,17 @@ function buildLocationTabs() {
 function loadAdmin() {
   const content = document.getElementById('adminContent');
   content.innerHTML = '<div class="empty">불러오는 중...</div>';
+  showLoading();
   Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword)])
     .then(function(results) {
+      hideLoading();
       lastRecords = results[0] || [];
       lastAssignments = results[1] || [];
       lastTargets = results[2] || [];
       renderAdmin(lastRecords, lastAssignments, lastTargets);
     })
     .catch(function(err) {
+      hideLoading();
       content.innerHTML = '<div class="empty">불러오기 실패: ' + err.message + '</div>';
     });
 }
