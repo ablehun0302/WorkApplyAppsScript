@@ -564,7 +564,8 @@ function batchSaveRoster(list, adminPw) {
     list.forEach(item => {
       let row = keyToRow[item.key];
       let existingOrder = 0;
-      if (row) existingOrder = Number(sheet.getRange(row, 4).getValue()) || 0;
+      // 위에서 이미 읽어둔 data 배열에 있는 값이므로 getRange().getValue()로 다시 조회하지 않는다.
+      if (row) existingOrder = Number(data[row - 1][3]) || 0;
       const rowData = [item.key, item.healthCertExpiry || '', item.hireDate || '', existingOrder];
       if (!row) {
         sheet.appendRow(rowData);
