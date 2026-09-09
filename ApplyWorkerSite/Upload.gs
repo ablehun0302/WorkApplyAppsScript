@@ -24,6 +24,7 @@ function getOrCreateWorkerFolder(name, phone) {
   try {
     rootFolder = DriveApp.getFolderById(rootFolderId);
   } catch (e) {
+    Logger.log('실패 원인: ' + e.message);
     throw new Error('ROOT_FOLDER_ID가 올바르지 않습니다. 관리자에게 문의해 주세요.');
   }
 

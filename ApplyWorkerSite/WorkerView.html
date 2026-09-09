@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<?!= include('SharedStyles'); ?>
+</head>
+<body>
+<div class="container">
+<?!= include('HamburgerMenu'); ?>
+  <div class="sub">이번 주 월요일부터 2주간의 근무를 미리 신청할 수 있어요.</div>
+    <div class="card" id="identityCard">
+      <div style="font-weight:700;">본인 확인</div>
+      <div class="sub">이름과 생년월일 앞 6자리(비밀번호 역할)로 기존 신청을 불러오거나 새로 신청하세요.</div>
+      <label>이름</label>
+      <input type="text" id="name" placeholder="홍길동">
+      <label>생년월일 6자리</label>
+      <input type="number" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
+      <label>연락처 (신규 신청 시 필요)</label>
+      <input type="tel" id="phone" placeholder="010-0000-0000">
+      <div id="lookupMsg"></div>
+      <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
+      <button class="secondary" id="resetIdentityBtn" onclick="resetIdentity()" style="display:none;">다른 사람으로 조회 / 처음으로</button>
+    </div>
+
+    <div class="card" id="applicationDetailsSection">
+      <label>성별</label>
+      <div id="genderRadios" class="location-checkboxes"></div>
+      <label>근무 장소 (해당되는 곳 한 곳만 선택)</label>
+      <div id="locationCheckboxes" class="location-checkboxes"></div>
+      <label>관리자에게 하고 싶은 말 (선택)</label>
+      <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
+      <textarea id="messageBox" rows="4" placeholder="예: 월화수목금토일 신청합니다.&#10;예:주간_월화수목금/야간_화수목금 신청합니다.&#10;예;월화수목금_신세계푸드/토일_BGF 신청합니다" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:8px;"><span style="white-space:nowrap;">일자리 정보(광고성 정보) 수신에 동의합니다 (선택)</span><input type="checkbox" id="adConsent" style="width:18px; flex-shrink:0;"></label>
+    </div>
+
+    <div id="calendarSection">
+      <div class="card">
+        <div id="modeMsg"></div>
+        <div id="dateListContainer"></div>
+      </div>
+      <div id="resultMsg"></div>
+      <button class="primary" id="submitBtn" onclick="submitApplication()">저장하기</button>
+      <button class="danger" id="cancelBtn" onclick="cancelApplication()" style="display:none;">신청 전체 취소</button>
+    </div>
+</div>
+<script>var PAGE_KEY = 'worker'; var BASE_URL = '<?!= baseUrl ?>';</script>
+<?!= include('SharedScript'); ?>
+<script>
+restoreScrollImmediate();
+let selections = {};
+let currentName = '', currentPin = '';
+let isEditMode = false;
+function renderLocationCheckboxes(selectedLocations) {
+  const container = document.getElementById('locationCheckboxes');
+  container.innerHTML = LOCATIONS.map(loc => {
+    const checked = (selectedLocations || []).indexOf(loc) > -1 ? 'checked' : '';
+    const id = 'loc_' + loc.replace(/[^a-zA-Z0-9가-힣]/g, '_');
+    return `<label><input type="radio" name="workLocation" id="${id}" value="${loc}" ${checked}>${loc}</label>`;
+  }).join('');
+}
+function getSelectedLocations() {
+  const checked = document.querySelector('input[name="workLocation"]:checked');
+  return checked ? [checked.value] : [];
+}
+
+function renderGenderRadios(selectedGender) {
+  const container = document.getElementById('genderRadios');
+  container.innerHTML = ['남','여'].map(g => {
+    const checked = (g === selectedGender) ? 'checked' : '';
+    return `<label><input type="radio" name="workerGender" id="gender_${g}" value="${g}" ${checked}>${g}</label>`;
+  }).join('');
+}
+function getSelectedGender() {
+  const checked = document.querySelector('input[name="workerGender"]:checked');
+  return checked ? checked.value : '';
+}
+
+// ---------- 근로자 신청 화면 ----------
+function buildDateList(prefill) {
+  const container = document.getElementById('dateListContainer');
+  container.innerHTML = '';
+  selections = {};
+  const dates = getTwoWeekDates();
+  const todayKey = formatDate(new Date());
+  dates.forEach((d, idx) => {
+    if (idx === 0 || idx === 7) {
+      const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
+      const t = document.createElement('div');
+      t.className = 'week-title';
+      t.textContent = (idx===0?'1주차':'2주차') + ` (${ws.getMonth()+1}/${ws.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
+      container.appendChild(t);
+    }
+    const key = formatDate(d);
+    const dow = DAY_NAMES[d.getDay()];
+    selections[key] = { day: false, night: false };
+    if (prefill) {
+      const found = prefill.find(s => s.date === key);
+      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; }
+    }
+    const row = document.createElement('div');
+    row.className = 'date-row';
+    const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    const isPast = key < todayKey;
+    const dayBtnClass = 'shift-btn' + (selections[key].day?' selected':'') + (isPast?' disabled':'');
+    const nightBtnClass = 'shift-btn' + (selections[key].night?' selected':'') + (isPast?' disabled':'');
+    const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
+    const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
+    row.innerHTML = `
+      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
+      <div class="shift-btns">
+        <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
+        <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+function toggleShift(key, type) {
+  selections[key][type] = !selections[key][type];
+  document.getElementById(type+'-'+key).classList.toggle('selected', selections[key][type]);
+}
+
+function lookupRecord() {
+  const name = document.getElementById('name').value.trim();
+  const pin = document.getElementById('pin').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const msgEl = document.getElementById('lookupMsg');
+
+  msgEl.innerHTML = '';
+  if (!name || !/^[0-9]{6}$/.test(pin)) {
+    msgEl.innerHTML = '<div class="msg err">이름과 생년월일 6자리를 정확히 입력해주세요.</div>';
+    return;
+  }
+
+  currentName = name; currentPin = pin;
+  console.log("이름: %s, 생년월일: %s", currentName, currentPin);
+
+  document.getElementById('lookupBtn').disabled = true;
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.duplicateName) alert('이미 등록된 동명이인이 있습니다. 생년월일 6자리를 정확히 확인해주세요.');
+      const existing = result.record;
+      document.getElementById('lookupBtn').disabled = false;
+      document.getElementById('name').disabled = true;
+      document.getElementById('pin').disabled = true;
+      document.getElementById('calendarSection').style.display = 'block';
+      document.getElementById('applicationDetailsSection').style.display = 'block';
+      document.getElementById('resetIdentityBtn').style.display = 'block';
+      if (existing) {
+        isEditMode = true;
+        document.getElementById('phone').value = existing.phone || '';
+        document.getElementById('phone').disabled = true;
+        renderGenderRadios(existing.gender);
+        renderLocationCheckboxes(existing.locations);
+        document.getElementById('messageBox').value = existing.message || '';
+        document.getElementById('adConsent').checked = existing.adConsent === 'Y';
+        buildDateList(existing.shifts);
+        document.getElementById('modeMsg').innerHTML = '<div class="msg info">기존 신청 내역을 불러왔습니다.</div>';
+        document.getElementById('cancelBtn').style.display = 'block';
+      } else {
+        isEditMode = false;
+        if (!phone) {
+          msgEl.innerHTML = '<div class="msg err">신규 신청은 연락처가 필요합니다.</div>';
+          document.getElementById('name').disabled = false;
+          document.getElementById('pin').disabled = false;
+          document.getElementById('calendarSection').style.display = 'none';
+          document.getElementById('applicationDetailsSection').style.display = 'none';
+          document.getElementById('resetIdentityBtn').style.display = 'none';
+          return;
+        }
+        renderGenderRadios('');
+        renderLocationCheckboxes([]);
+        document.getElementById('messageBox').value = '';
+        document.getElementById('adConsent').checked = false;
+        buildDateList(null);
+        document.getElementById('modeMsg').innerHTML = '<div class="msg info">근무신청하는 날짜의 (주간/야간)을 눌러서 체크해 주세요. 신청하지 않는 날짜는 그냥 비워두시면 됩니다</div>';
+        document.getElementById('cancelBtn').style.display = 'none';
+      }
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('lookupBtn').disabled = false;
+      msgEl.innerHTML = '<div class="msg err">조회 중 오류: ' + err.message + '</div>';
+    })
+    .lookupRecord(name, pin);
+}
+
+function submitApplication() {
+  const phone = document.getElementById('phone').value.trim();
+  const resultMsg = document.getElementById('resultMsg');
+  resultMsg.innerHTML = '';
+  const chosen = Object.entries(selections).filter(([k,v]) => v.day || v.night).map(([k,v]) => ({date:k, day:v.day, night:v.night}));
+  if (chosen.length === 0) {
+    resultMsg.innerHTML = '<div class="msg err">최소 하나의 날짜/시간대를 선택해주세요.</div>';
+    return;
+  }
+  const gender = getSelectedGender();
+  if (!gender) {
+    resultMsg.innerHTML = '<div class="msg err">성별을 선택해주세요.</div>';
+    return;
+  }
+  const locations = getSelectedLocations();
+  if (locations.length === 0) {
+    resultMsg.innerHTML = '<div class="msg err">근무 장소를 최소 하나 선택해주세요.</div>';
+    return;
+  }
+  const message = document.getElementById('messageBox').value.trim();
+  const adConsent = document.getElementById('adConsent').checked ? 'Y' : 'N';
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '저장 중...';
+  google.script.run
+    .withSuccessHandler(function() {
+      btn.disabled = false; btn.textContent = '저장하기';
+      resultMsg.innerHTML = '<div class="msg ok">✅ ' + (isEditMode?'수정':'신청') + ' 완료되었습니다.</div>';
+      isEditMode = true;
+      document.getElementById('cancelBtn').style.display = 'block';
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false; btn.textContent = '저장하기';
+      const msg = err.message.indexOf('Lock timeout') !== -1
+        ? '지금 신청자가 많아 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+        : err.message;
+      resultMsg.innerHTML = '<div class="msg err">오류: ' + msg + '</div>';
+    })
+    .saveRecord(currentName, currentPin, phone, chosen, locations, message, gender, adConsent);
+}
+
+function cancelApplication() {
+  const resultMsg = document.getElementById('resultMsg');
+  google.script.run
+    .withSuccessHandler(function() {
+      resultMsg.innerHTML = '<div class="msg ok">신청이 전체 취소되었습니다.</div>';
+      resetIdentity();
+    })
+    .withFailureHandler(function(err) {
+      resultMsg.innerHTML = '<div class="msg err">취소 중 오류: ' + err.message + '</div>';
+    })
+    .deleteRecord(currentName, currentPin);
+}
+
+function resetIdentity() {
+  document.getElementById('name').value = ''; document.getElementById('name').disabled = false;
+  document.getElementById('pin').value = ''; document.getElementById('pin').disabled = false;
+  document.getElementById('phone').value = ''; document.getElementById('phone').disabled = false;
+  renderGenderRadios('');
+  renderLocationCheckboxes([]);
+  document.getElementById('messageBox').value = '';
+  document.getElementById('calendarSection').style.display = 'none';
+  document.getElementById('applicationDetailsSection').style.display = 'none';
+  document.getElementById('resetIdentityBtn').style.display = 'none';
+  document.getElementById('lookupMsg').innerHTML = '';
+  document.getElementById('resultMsg').innerHTML = '';
+  currentName = ''; currentPin = ''; isEditMode = false;
+}
+renderLocationCheckboxes([]);
+renderGenderRadios('');
+</script>
+</body>
+</html>
