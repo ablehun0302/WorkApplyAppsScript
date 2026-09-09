@@ -785,7 +785,8 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     const assignKey = makeAssignKey_(date, shift, key);
     const row = findRow_(sheet, 0, assignKey);
     const location = getKeyToLocationMap_()[key] || '';
-    const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
+    const assignGender = isWomenWage ? '여' : gender;
+    const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
     if (row === -1) sheet.appendRow(rowData);
     else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
     logHistory_(key, date);
@@ -809,7 +810,8 @@ function batchSaveAssignments(list, adminPw) {
 
     list.forEach(item => {
       const assignKey = makeAssignKey_(item.date, item.shift, item.key);
-      const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
+      const assignGender = item.isWomenWage ? '여' : item.gender;
+      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
       const row = keyToRow[assignKey];
       if (!row) {
         sheet.appendRow(rowData);
