@@ -180,11 +180,12 @@
       <label>이름</label>
       <input type="text" id="name" placeholder="홍길동">
       <label>생년월일 6자리</label>
-      <input type="password" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
+      <input type="number" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
       <label>연락처 (신규 신청 시 필요)</label>
       <input type="tel" id="phone" placeholder="010-0000-0000">
       <div id="lookupMsg"></div>
       <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
+      <button class="secondary" id="resetIdentityBtn" onclick="resetIdentity()" style="display:none;">다른 사람으로 조회 / 처음으로</button>
     </div>
 
     <div class="card" id="applicationDetailsSection">
@@ -206,7 +207,6 @@
       <div id="resultMsg"></div>
       <button class="primary" id="submitBtn" onclick="submitApplication()">저장하기</button>
       <button class="danger" id="cancelBtn" onclick="cancelApplication()" style="display:none;">신청 전체 취소</button>
-      <button class="secondary" onclick="resetIdentity()">다른 사람으로 조회 / 처음으로</button>
     </div>
   </div>
 
@@ -623,12 +623,25 @@ function lookupRecord() {
 
   document.getElementById('lookupBtn').disabled = true;
   google.script.run
+    .withSuccessHandler(function(dup) {
+      if (dup) alert('이미 등록된 동명이인이 있습니다. 생년월일 6자리를 정확히 확인해주세요.');
+      doLookupRecord(name, pin, phone, msgEl);
+    })
+    .withFailureHandler(function() {
+      doLookupRecord(name, pin, phone, msgEl);
+    })
+    .checkNameExists(name, pin);
+}
+
+function doLookupRecord(name, pin, phone, msgEl) {
+  google.script.run
     .withSuccessHandler(function(existing) {
       document.getElementById('lookupBtn').disabled = false;
       document.getElementById('name').disabled = true;
       document.getElementById('pin').disabled = true;
       document.getElementById('calendarSection').style.display = 'block';
       document.getElementById('applicationDetailsSection').style.display = 'block';
+      document.getElementById('resetIdentityBtn').style.display = 'block';
       if (existing) {
         isEditMode = true;
         document.getElementById('phone').value = existing.phone || '';
@@ -648,6 +661,7 @@ function lookupRecord() {
           document.getElementById('pin').disabled = false;
           document.getElementById('calendarSection').style.display = 'none';
           document.getElementById('applicationDetailsSection').style.display = 'none';
+          document.getElementById('resetIdentityBtn').style.display = 'none';
           return;
         }
         renderGenderRadios('');
@@ -728,6 +742,7 @@ function resetIdentity() {
   document.getElementById('messageBox').value = '';
   document.getElementById('calendarSection').style.display = 'none';
   document.getElementById('applicationDetailsSection').style.display = 'none';
+  document.getElementById('resetIdentityBtn').style.display = 'none';
   document.getElementById('lookupMsg').innerHTML = '';
   document.getElementById('resultMsg').innerHTML = '';
   currentName = ''; currentPin = ''; isEditMode = false;

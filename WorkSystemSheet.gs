@@ -384,6 +384,18 @@ function findRow_(sheet, colIndex, value) {
 }
 
 // ---- 신청 관련 ----
+// 동명이인 확인용: 이름은 같지만 생년월일(pin)이 다른, 즉 다른 사람인 기존 신청자가 있는지 확인 (조회 전 안내에 사용)
+function checkNameExists(name, pin) {
+  const sheet = getDataSheet_();
+  const data = sheet.getDataRange().getValues();
+  const targetName = name.trim();
+  const targetPin = pin.trim();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] === targetName && String(data[i][3]) !== targetPin) return true;
+  }
+  return false;
+}
+
 function lookupRecord(name, pin) {
   const sheet = getDataSheet_();
   const key = makeKey_(name, pin);
