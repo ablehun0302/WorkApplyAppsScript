@@ -623,19 +623,9 @@ function lookupRecord() {
 
   document.getElementById('lookupBtn').disabled = true;
   google.script.run
-    .withSuccessHandler(function(dup) {
-      if (dup) alert('이미 등록된 동명이인이 있습니다. 생년월일 6자리를 정확히 확인해주세요.');
-      doLookupRecord(name, pin, phone, msgEl);
-    })
-    .withFailureHandler(function() {
-      doLookupRecord(name, pin, phone, msgEl);
-    })
-    .checkNameExists(name, pin);
-}
-
-function doLookupRecord(name, pin, phone, msgEl) {
-  google.script.run
-    .withSuccessHandler(function(existing) {
+    .withSuccessHandler(function(result) {
+      if (result.duplicateName) alert('이미 등록된 동명이인이 있습니다. 생년월일 6자리를 정확히 확인해주세요.');
+      const existing = result.record;
       document.getElementById('lookupBtn').disabled = false;
       document.getElementById('name').disabled = true;
       document.getElementById('pin').disabled = true;
