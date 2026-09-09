@@ -789,11 +789,6 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     if (row === -1) sheet.appendRow(rowData);
     else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
     logHistory_(key, date);
-    if (isWomenWage) {
-      const dataSheet = getDataSheet_();
-      const dataRow = findRow_(dataSheet, 0, key);
-      if (dataRow > -1) dataSheet.getRange(dataRow, 11).setValue('여');
-    }
   } finally {
     lock.releaseLock();
   }
@@ -826,18 +821,6 @@ function batchSaveAssignments(list, adminPw) {
 
     // logHistory_를 item마다 호출하면 매번 History 시트를 통째로 재조회하므로 배치 버전으로 한 번에 처리
     batchLogHistory_(list.map(item => ({ key: item.key, date: item.date })));
-
-    const wageKeys = Array.from(new Set(list.filter(item => item.isWomenWage).map(item => item.key)));
-    if (wageKeys.length > 0) {
-      const dataSheet = getDataSheet_();
-      const dataValues = dataSheet.getDataRange().getValues();
-      const dataKeyToRow = {};
-      for (let i = 1; i < dataValues.length; i++) dataKeyToRow[dataValues[i][0]] = i + 1;
-      wageKeys.forEach(key => {
-        const dataRow = dataKeyToRow[key];
-        if (dataRow) dataSheet.getRange(dataRow, 11).setValue('여');
-      });
-    }
   } finally {
     lock.releaseLock();
   }
