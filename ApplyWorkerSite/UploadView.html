@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<?!= include('SharedStyles'); ?>
+</head>
+<body>
+<div class="container">
+<?!= include('HamburgerMenu'); ?>
+    <div class="sub">이름, 연락처와 함께 신분증·통장사본·보건증·기타 서류를 업로드해 주세요.</div>
+    <div class="card">
+      <form id="uploadForm">
+        <label>이름</label>
+        <input type="text" id="nameInput" required>
+
+        <label>연락처</label>
+        <input type="tel" id="phoneInput" required>
+        <button type="button" class="secondary" onclick="checkExistingFiles()">기존 파일 확인</button>
+        <p class="week-title">파일이 없는 항목은 새로 추가되고, 기존에 올린 파일이 있는 항목은 새로 올린 파일로 교체됩니다.</p>
+
+        <label>신분증 <span class="loc-badge" id="idCardStatus" hidden>기존 파일 있음</span><span class="hint" id="idCardNoneStatus" hidden>파일 없음</span></label>
+        <input type="file" id="idCardInput" accept="image/*,application/pdf" multiple>
+
+        <label>통장사본 <span class="loc-badge" id="bankbookStatus" hidden>기존 파일 있음</span><span class="hint" id="bankbookNoneStatus" hidden>파일 없음</span></label>
+        <input type="file" id="bankbookInput" accept="image/*,application/pdf" multiple>
+
+        <label>보건증 <span class="loc-badge" id="healthCertStatus" hidden>기존 파일 있음</span><span class="hint" id="healthCertNoneStatus" hidden>파일 없음</span></label>
+        <input type="file" id="healthCertInput" accept="image/*,application/pdf" multiple>
+
+        <label>기타 서류 <span class="loc-badge" id="etcStatus" hidden>기존 파일 있음</span><span class="hint" id="etcNoneStatus" hidden>파일 없음</span></label>
+        <p class="hint">자격증, 비자, 여권 등..</p>
+        <input type="file" id="etcInput" accept="image/*,application/pdf" multiple>
+
+        <div id="errorMessage"></div>
+        <button type="button" class="primary" id="submitButton" onclick="handleSubmit()">제출</button>
+        <button type="button" class="secondary" id="resetButton" onclick="resetFileInputs()">파일 선택 초기화</button>
+      </form>
+    </div>
+
+    <div id="resultArea"></div>
+</div>
+<script>var PAGE_KEY = 'upload'; var BASE_URL = '<?!= baseUrl ?>';</script>
+<?!= include('SharedScript'); ?>
+<script>
+// ---- 서류 제출 (GetWorkerIdSite에서 병합) ----
+var MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+var CATEGORY_INPUTS = [
+  { category: '신분증', inputId: 'idCardInput', statusId: 'idCardStatus', noneStatusId: 'idCardNoneStatus', required: false },
+  { category: '통장사본', inputId: 'bankbookInput', statusId: 'bankbookStatus', noneStatusId: 'bankbookNoneStatus', required: false },
+  { category: '보건증', inputId: 'healthCertInput', statusId: 'healthCertStatus', noneStatusId: 'healthCertNoneStatus', required: false },
+  { category: '기타', inputId: 'etcInput', statusId: 'etcStatus', noneStatusId: 'etcNoneStatus', required: false }
+];
+
+function checkExistingFiles() {
+  var errorEl = document.getElementById('errorMessage');
+  var name = document.getElementById('nameInput').value.trim();
+  var phone = document.getElementById('phoneInput').value.trim();
+  if (!name || !phone) {
+    errorEl.textContent = '이름과 연락처를 먼저 입력해 주세요.';
+    return;
+  }
+  errorEl.textContent = '';
+
+  google.script.run
+    .withSuccessHandler(function (folderId) {
+      google.script.run
+        .withSuccessHandler(function (existing) {
+          CATEGORY_INPUTS.forEach(function (spec) {
+            var hasFile = !!existing[spec.category];
+            document.getElementById(spec.statusId).hidden = !hasFile;
+            document.getElementById(spec.noneStatusId).hidden = hasFile;
+          });
+        })
+        .withFailureHandler(function () {})
+        .getExistingCategories(folderId);
+    })
+    .withFailureHandler(function () {})
+    .getOrCreateWorkerFolder(name, phone);
+}
+
+function isAllowedFile(file) {
+  return file.type === 'application/pdf' || file.type.indexOf('image/') === 0;
+}
+
+function collectFilesToUpload() {
+  var errorEl = document.getElementById('errorMessage');
+  errorEl.textContent = '';
+
+  var name = document.getElementById('nameInput').value.trim();
+  var phone = document.getElementById('phoneInput').value.trim();
+  if (!name) { errorEl.textContent = '이름을 입력해 주세요.'; return null; }
+  if (!phone) { errorEl.textContent = '연락처를 입력해 주세요.'; return null; }
+
+  var files = [];
+  for (var i = 0; i < CATEGORY_INPUTS.length; i++) {
+    var spec = CATEGORY_INPUTS[i];
+    var input = document.getElementById(spec.inputId);
+    var selected = Array.prototype.slice.call(input.files);
+
+    if (spec.required && selected.length === 0) {
+      errorEl.textContent = spec.category + '을(를) 최소 1개 업로드해 주세요.';
+      return null;
+    }
+
+    for (var j = 0; j < selected.length; j++) {
+      var file = selected[j];
+      if (!isAllowedFile(file)) {
+        errorEl.textContent = file.name + ': 이미지 또는 PDF 파일만 업로드할 수 있습니다.';
+        return null;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        errorEl.textContent = file.name + ': 파일 용량은 10MB를 초과할 수 없습니다.';
+        return null;
+      }
+      files.push({ category: spec.category, file: file });
+    }
+  }
+
+  return { name: name, phone: phone, files: files };
+}
+
+function setStatus(entry, text) {
+  entry.statusEl.textContent = text;
+}
+
+function uploadOneFile(folderId, entry) {
+  return new Promise(function (resolve) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var base64Data = reader.result.split(',')[1];
+      setStatus(entry, '업로드 중...');
+      google.script.run
+        .withSuccessHandler(function (result) {
+          setStatus(entry, '성공: ' + result.fileName);
+          entry.retryButton.style.display = 'none';
+          resolve(true);
+        })
+        .withFailureHandler(function (error) {
+          setStatus(entry, '실패: ' + error.message);
+          entry.retryButton.style.display = 'inline';
+          resolve(false);
+        })
+        .uploadFile(folderId, entry.category, base64Data, entry.file.type, entry.file.name);
+    };
+    reader.onerror = function () {
+      setStatus(entry, '실패: 파일을 읽을 수 없습니다.');
+      entry.retryButton.style.display = 'inline';
+      resolve(false);
+    };
+    reader.readAsDataURL(entry.file);
+  });
+}
+
+function renderFileList(entries) {
+  var resultArea = document.getElementById('resultArea');
+  resultArea.innerHTML = '';
+  entries.forEach(function (entry) {
+    var row = document.createElement('div');
+    row.textContent = entry.category + ' - ' + entry.file.name + ': ';
+
+    var statusEl = document.createElement('span');
+    statusEl.textContent = '대기';
+    entry.statusEl = statusEl;
+
+    var retryButton = document.createElement('button');
+    retryButton.textContent = '재시도';
+    retryButton.style.display = 'none';
+    retryButton.onclick = function () {
+      retryButton.style.display = 'none';
+      uploadOneFile(entry.folderId, entry);
+    };
+    entry.retryButton = retryButton;
+
+    row.appendChild(statusEl);
+    row.appendChild(retryButton);
+    resultArea.appendChild(row);
+  });
+}
+
+function resetFileInputs() {
+  CATEGORY_INPUTS.forEach(function (spec) {
+    document.getElementById(spec.inputId).value = '';
+  });
+  document.getElementById('errorMessage').textContent = '';
+  document.getElementById('resultArea').innerHTML = '';
+}
+
+function handleSubmit() {
+  var collected = collectFilesToUpload();
+  if (!collected) return;
+
+  var submitButton = document.getElementById('submitButton');
+  submitButton.disabled = true;
+  renderFileList(collected.files);
+
+  google.script.run
+    .withSuccessHandler(function (folderId) {
+      collected.files.forEach(function (entry) { entry.folderId = folderId; });
+
+      var index = 0;
+      var successCount = 0;
+      var failCount = 0;
+
+      function uploadNext() {
+        if (index >= collected.files.length) {
+          document.getElementById('errorMessage').textContent =
+            '완료: 성공 ' + successCount + '건, 실패 ' + failCount + '건';
+          submitButton.disabled = false;
+          return;
+        }
+        var entry = collected.files[index];
+        index++;
+        uploadOneFile(folderId, entry).then(function (ok) {
+          if (ok) { successCount++; } else { failCount++; }
+          uploadNext();
+        });
+      }
+
+      uploadNext();
+    })
+    .withFailureHandler(function (error) {
+      document.getElementById('errorMessage').textContent = '폴더 생성 실패: ' + error.message;
+      submitButton.disabled = false;
+    })
+    .getOrCreateWorkerFolder(collected.name, collected.phone);
+}
+</script>
+</body>
+</html>

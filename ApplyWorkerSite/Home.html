@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<?!= include('SharedStyles'); ?>
+</head>
+<body>
+<div class="container">
+<?!= include('HamburgerMenu'); ?>
+  <div class="sub">원하는 메뉴를 선택하세요.</div>
+  <div class="home-links">
+    <a class="home-link-card" href="javascript:void(0)" onclick="goToPage('worker')">📋 신청 / 수정<span class="home-link-desc">근무 일정을 신청하거나 기존 신청을 수정합니다.</span></a>
+    <a class="home-link-card" href="javascript:void(0)" onclick="goToPage('admin')">🔑 관리자 보기<span class="home-link-desc">근무 배치판 및 전체 신청자 목록을 관리합니다.</span></a>
+    <a class="home-link-card" href="javascript:void(0)" onclick="goToPage('upload')">📁 서류 제출<span class="home-link-desc">신분증, 통장사본 등 서류를 업로드합니다.</span></a>
+  </div>
+</div>
+<script>var PAGE_KEY = 'home'; var BASE_URL = '<?!= baseUrl ?>';</script>
+<?!= include('SharedScript'); ?>
+</body>
+</html>

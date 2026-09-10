@@ -8,16 +8,20 @@ function sanitizeSheetName_(name) {
   return name.replace(/[\/\\\?\*\[\]:]/g, '_').substring(0, 90);
 }
 
-function getRosterSheet_() {
+function getOrCreateSheet_(name, headers, textFormatCols) {
   const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Roster');
+  let sheet = ss.getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet('Roster');
-    sheet.appendRow(['key', 'healthCertExpiry', 'hireDate', 'sortOrder']);
-    sheet.getRange('B:C').setNumberFormat('@');
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+    if (textFormatCols) sheet.getRange(textFormatCols).setNumberFormat('@');
     cleanupDefaultSheets_(ss);
   }
   return sheet;
+}
+
+function getRosterSheet_() {
+  return getOrCreateSheet_('Roster', ['key', 'healthCertExpiry', 'hireDate', 'sortOrder'], 'B:C');
 }
 
 function getRosterData(adminPw) {
@@ -83,15 +87,7 @@ function swapSortOrder(keyA, keyB, adminPw) {
 
 // ---- 근로 이력 (자동: 배치 시 기록 / 수동: 과거 월별 입력) ----
 function getHistorySheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('History');
-  if (!sheet) {
-    sheet = ss.insertSheet('History');
-    sheet.appendRow(['histKey', 'key', 'date']);
-    sheet.getRange('C:C').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('History', ['histKey', 'key', 'date'], 'C:C');
 }
 
 function logHistory_(key, date) {
@@ -202,15 +198,7 @@ function removeCanceledAssignments_(key, oldShifts, newShifts) {
 }
 
 function getPastMonthlySheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('PastMonthly');
-  if (!sheet) {
-    sheet = ss.insertSheet('PastMonthly');
-    sheet.appendRow(['pmKey', 'key', 'yearMonth', 'days']);
-    sheet.getRange('C:C').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('PastMonthly', ['pmKey', 'key', 'yearMonth', 'days'], 'C:C');
 }
 
 function getPastMonthlyEntries(key, adminPw) {
@@ -300,7 +288,7 @@ function getSpreadsheet_() {
   let ssId = props.getProperty('SS_ID');
   let ss = null;
   if (ssId) {
-    try { ss = SpreadsheetApp.openById(ssId); } catch (e) { ss = null; }
+    try { ss = SpreadsheetApp.openById(ssId); } catch (e) { Logger.log('실패 원인: ' + e.message); ss = null; }
   }
   if (!ss) {
     ss = SpreadsheetApp.create(NEW_SHEET_NAME);
@@ -318,39 +306,17 @@ function cleanupDefaultSheets_(ss) {
 }
 
 function getDataSheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Data');
-  if (!sheet) {
-    sheet = ss.insertSheet('Data');
-    sheet.appendRow(['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
-    cleanupDefaultSheets_(ss);
-  }
+  const sheet = getOrCreateSheet_('Data', ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
   sheet.getRange('D:D').setNumberFormat('@'); // pin 앞자리 0 유실 방지 (기존 시트에도 매번 적용)
   return sheet;
 }
 
 function getAssignSheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Assign');
-  if (!sheet) {
-    sheet = ss.insertSheet('Assign');
-    sheet.appendRow(['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location']);
-    sheet.getRange('B:B').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('Assign', ['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location'], 'B:B');
 }
 
 function getTargetSheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Target');
-  if (!sheet) {
-    sheet = ss.insertSheet('Target');
-    sheet.appendRow(['targetKey', 'date', 'shift', 'maleTarget', 'femaleTarget']);
-    sheet.getRange('B:B').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('Target', ['targetKey', 'date', 'shift', 'maleTarget', 'femaleTarget'], 'B:B');
 }
 
 function toDateStr_(value) {
@@ -384,13 +350,29 @@ function findRow_(sheet, colIndex, value) {
 }
 
 // ---- 신청 관련 ----
+// record: 기존 신청 내역(name+pin 정확히 일치), duplicateName: 이름은 같지만 pin(생년월일)이 다른 동명이인 존재 여부
 function lookupRecord(name, pin) {
-  const sheet = getDataSheet_();
-  const key = makeKey_(name, pin);
-  const row = findRow_(sheet, 0, key);
-  if (row === -1) return null;
-  const v = sheet.getRange(row, 1, 1, 12).getValues()[0];
-  return { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
+  try {
+    const sheet = getDataSheet_();
+    const targetName = name.trim();
+    const targetPin = pin.trim();
+    const key = makeKey_(name, pin);
+    const data = sheet.getDataRange().getValues();
+    let record = null;
+    let duplicateName = false;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        const v = data[i];
+        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
+      } else if (data[i][1] === targetName && String(data[i][3]) !== targetPin) {
+        duplicateName = true;
+      }
+    }
+    return { record: record, duplicateName: duplicateName };
+  } catch (e) {
+    Logger.log('lookupRecord 실패 원인: ' + e.message);
+    throw e;
+  }
 }
 
 // 여러 명의 근무자를 한 번에 일괄 등록 (관리자 추가 화면에서 사용)
@@ -588,29 +570,35 @@ function adminUpdateShifts(key, shifts, adminPw) {
   return true;
 }
 
-// 연락처/생년월일(핀)을 나중에 추가/수정. 핀이 바뀌면 key가 바뀌므로 관련 시트를 모두 옮겨준다.
-function setContactInfo(oldKey, phone, newPin, adminPw) {
+// 이름/연락처/생년월일(핀)을 나중에 추가/수정. 이름이나 핀이 바뀌면 key가 바뀌므로 관련 시트를 모두 옮겨준다.
+// 각 값은 undefined/null(이름은 빈 문자열 포함)이면 기존 값을 유지하므로, 일부 필드만 넘겨도 나머지가 지워지지 않는다.
+function setContactInfo(oldKey, newName, phone, newPin, adminPw) {
   requireAdmin_(adminPw);
   const sheet = getDataSheet_();
   const row = findRow_(sheet, 0, oldKey);
   if (row === -1) return false;
 
-  const name = sheet.getRange(row, 2).getValue();
+  const currentName = sheet.getRange(row, 2).getValue();
+  const finalName = (newName === undefined || newName === null || !String(newName).trim()) ? currentName : String(newName).trim();
+  const currentPhone = sheet.getRange(row, 3).getValue() || '';
+  const finalPhone = (phone === undefined || phone === null) ? currentPhone : phone;
   const currentPin = sheet.getRange(row, 4).getValue() || '';
   const finalPin = (newPin === undefined || newPin === null) ? currentPin : newPin;
-  const newKey = makeKey_(name, finalPin || '');
+  const newKey = makeKey_(finalName, finalPin || '');
 
-  sheet.getRange(row, 3).setValue(toTextCell_(phone || ''));
+  sheet.getRange(row, 2).setValue(finalName);
+  sheet.getRange(row, 3).setValue(toTextCell_(finalPhone || ''));
   sheet.getRange(row, 4).setValue(toTextCell_(finalPin || ''));
 
   if (newKey !== oldKey) {
     sheet.getRange(row, 1).setValue(newKey);
-    reKeyRelatedSheets_(oldKey, newKey);
+    reKeyRelatedSheets_(oldKey, newKey, finalName !== currentName ? finalName : null);
   }
   return true;
 }
 
-function reKeyRelatedSheets_(oldKey, newKey) {
+// newName을 넘기면(이름이 바뀐 경우) Assign 시트에 복제되어 있는 이름 표시값도 함께 갱신한다.
+function reKeyRelatedSheets_(oldKey, newKey, newName) {
   const assignSheet = getAssignSheet_();
   const aData = assignSheet.getDataRange().getValues();
   for (let i = 1; i < aData.length; i++) {
@@ -618,6 +606,7 @@ function reKeyRelatedSheets_(oldKey, newKey) {
       const newAssignKey = makeAssignKey_(aData[i][1], aData[i][2], newKey);
       assignSheet.getRange(i + 1, 1).setValue(newAssignKey);
       assignSheet.getRange(i + 1, 4).setValue(newKey);
+      if (newName) assignSheet.getRange(i + 1, 5).setValue(newName);
     }
   }
 
@@ -743,7 +732,7 @@ function getKeyToLocationMap_() {
   const map = {};
   for (let i = 1; i < data.length; i++) {
     let locations = [];
-    try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) {}
+    try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
     map[data[i][0]] = data[i][7] || locations[0] || '';
   }
   return map;
@@ -778,15 +767,11 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     const assignKey = makeAssignKey_(date, shift, key);
     const row = findRow_(sheet, 0, assignKey);
     const location = getKeyToLocationMap_()[key] || '';
-    const rowData = [assignKey, date, shift, key, name, gender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
+    const assignGender = isWomenWage ? '여' : gender;
+    const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
     if (row === -1) sheet.appendRow(rowData);
     else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
     logHistory_(key, date);
-    if (isWomenWage) {
-      const dataSheet = getDataSheet_();
-      const dataRow = findRow_(dataSheet, 0, key);
-      if (dataRow > -1) dataSheet.getRange(dataRow, 11).setValue('여');
-    }
   } finally {
     lock.releaseLock();
   }
@@ -807,7 +792,8 @@ function batchSaveAssignments(list, adminPw) {
 
     list.forEach(item => {
       const assignKey = makeAssignKey_(item.date, item.shift, item.key);
-      const rowData = [assignKey, item.date, item.shift, item.key, item.name, item.gender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
+      const assignGender = item.isWomenWage ? '여' : item.gender;
+      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
       const row = keyToRow[assignKey];
       if (!row) {
         sheet.appendRow(rowData);
@@ -819,18 +805,6 @@ function batchSaveAssignments(list, adminPw) {
 
     // logHistory_를 item마다 호출하면 매번 History 시트를 통째로 재조회하므로 배치 버전으로 한 번에 처리
     batchLogHistory_(list.map(item => ({ key: item.key, date: item.date })));
-
-    const wageKeys = Array.from(new Set(list.filter(item => item.isWomenWage).map(item => item.key)));
-    if (wageKeys.length > 0) {
-      const dataSheet = getDataSheet_();
-      const dataValues = dataSheet.getDataRange().getValues();
-      const dataKeyToRow = {};
-      for (let i = 1; i < dataValues.length; i++) dataKeyToRow[dataValues[i][0]] = i + 1;
-      wageKeys.forEach(key => {
-        const dataRow = dataKeyToRow[key];
-        if (dataRow) dataSheet.getRange(dataRow, 11).setValue('여');
-      });
-    }
   } finally {
     lock.releaseLock();
   }

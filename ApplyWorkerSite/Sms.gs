@@ -57,6 +57,7 @@ function sendSms(phoneList, message, isAdvertising, senderOverride, adminPw) {
   try {
     result = JSON.parse(responseText);
   } catch (e) {
+    Logger.log('실패 원인: ' + e.message);
     throw new Error('SOLAPI 응답을 해석할 수 없습니다: ' + responseText);
   }
 

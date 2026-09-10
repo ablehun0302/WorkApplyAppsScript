@@ -1,0 +1,45 @@
+<script>
+const DAY_NAMES = ['일','월','화','수','목','금','토'];
+const LOCATIONS = ['신세계푸드 원남','델몬트_원남','BGF푸드_진천','물류우리와_금왕','포장우리와_금왕','주방보조_전국','기타'];
+
+function formatDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function getTwoWeekDates() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const day = today.getDay(); // 0=일 ... 6=토
+  const diffToMonday = (day === 0) ? 6 : (day - 1); // 이번 주 월요일까지 며칠 되돌아가야 하는지
+  const start = new Date(today); start.setDate(today.getDate() - diffToMonday);
+  const dates = [];
+  for (let i = 0; i < 14; i++) { const d = new Date(start); d.setDate(start.getDate() + i); dates.push(d); }
+  return dates;
+}
+
+// href="?page=..." 상대경로는 iframe 내부 주소(googleusercontent.com) 기준으로 풀려서 못 씀 -> 서버가 내려준 절대 URL(BASE_URL)로 직접 이동
+function goToPage(page) {
+  window.top.location.href = BASE_URL + '?page=' + page;
+}
+
+function toggleHamburgerMenu() {
+  const menu = document.getElementById('hamburgerMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+function closeHamburgerMenu() {
+  document.getElementById('hamburgerMenu').style.display = 'none';
+}
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('hamburgerMenu');
+  if (menu.style.display === 'none') return;
+  if (!menu.contains(e.target) && e.target.id !== 'hamburgerBtn') closeHamburgerMenu();
+});
+
+// ---- 새로고침해도 보던 스크롤 위치 유지 (페이지별로 구분해서 저장) ----
+window.addEventListener('beforeunload', function() {
+  sessionStorage.setItem('scrollY:' + PAGE_KEY, window.scrollY);
+});
+function restoreScrollImmediate() {
+  const savedScrollY = sessionStorage.getItem('scrollY:' + PAGE_KEY);
+  if (savedScrollY !== null) window.scrollTo(0, parseInt(savedScrollY, 10));
+}
+</script>

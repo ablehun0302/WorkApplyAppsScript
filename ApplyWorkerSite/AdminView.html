@@ -4,213 +4,11 @@
 <base target="_top">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif; background: #f4f5f7; margin: 0; padding: 16px; color: #222; }
-  .container { max-width: 560px; margin: 0 auto; }
-  body.admin-active .container { max-width: clamp(560px, 92vw, 1300px); }
-  .assign-board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-items: start; }
-  .assign-board-grid .assign-date-card { margin-bottom: 0; }
-  h1 { font-size: 20px; margin-bottom: 4px; }
-  .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-  .tab { flex: 1; text-align: center; padding: 10px; border-radius: 10px; background: #e9eaee; cursor: pointer; font-weight: 600; font-size: 14px; }
-  .tab.active { background: #2f6fed; color: white; }
-  .card { background: white; border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-  label { font-size: 13px; font-weight: 600; color: #444; display: block; margin: 10px 0 4px; }
-  input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; }
-  input:disabled { background: #f2f2f2; color: #888; }
-  .week-title { font-weight: 700; margin: 14px 0 6px; font-size: 14px; color: #2f6fed; }
-  .date-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-  .date-row:last-child { border-bottom: none; }
-  .weekend { color: #d9534f; }
-  .shift-btns { display: flex; gap: 6px; }
-  .shift-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fafafa; font-size: 12px; cursor: pointer; user-select: none; }
-  .shift-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
-  .shift-btn.disabled { background: #f0f0f0; color: #bbb; border-color: #e5e5e5; cursor: not-allowed; }
-  .shift-btn.disabled.selected { background: #c3cbe0; color: #33406b; border-color: #c3cbe0; cursor: not-allowed;}
-  button, .shift-btn, .location-tab, .reorder-btn, .batch-all-btn { transition: transform 0.06s ease; }
-  button:active, .shift-btn:active, .location-tab:active, .reorder-btn:active, .batch-all-btn:active { transform: scale(0.95); }
-  button.primary { width: 100%; padding: 13px; margin-top: 10px; background: #2f6fed; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
-  button.primary:active { background: #1f4fc0; }
-  button.primary:disabled { background: #aaa; transform: none; }
-  button.secondary { width: 100%; padding: 11px; margin-top: 8px; background: white; color: #555; border: 1px solid #ccc; border-radius: 10px; font-size: 14px; cursor: pointer; }
-  button.secondary:active { background: #eee; }
-  button.danger { width: 100%; padding: 11px; margin-top: 8px; background: #fdecea; color: #c0392b; border: 1px solid #f5c6c1; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
-  button.danger:active { background: #fbd5d0; }
-  .msg { text-align: center; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 14px; }
-  .msg.ok { background: #e6f4ea; color: #1a7a34; }
-  .msg.err { background: #fdecea; color: #c0392b; }
-  .msg.info { background: #e8f0fe; color: #1a56db; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: left; }
-  .table-wrap { overflow-x: auto; margin-bottom: 18px; border: 1px solid #eee; border-radius: 10px; }
-  table.week-table { min-width: 620px; font-size: 12px; }
-  table.week-table th, table.week-table td { border: 1px solid #eee; padding: 6px 4px; text-align: center; vertical-align: top; }
-  table.week-table .rowhead { background: #f7f8fa; font-weight: 700; text-align: left; }
-  .shift-table-label { font-weight: 700; font-size: 13px; margin: 10px 0 4px; color: #444; }
-  .side-by-side-wrap { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; align-items: flex-start; }
-  .scroll-arrow-wrap { position: relative; }
-  .scroll-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; cursor: pointer;
-    width: 30px; height: 30px; border-radius: 50%; background: rgba(47,111,237,0.9); color: white;
-    display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-  .scroll-arrow-left { left: -6px; }
-  .scroll-arrow-right { right: -6px; }
-  .side-by-side-col { flex: 0 0 auto; }
-  table.week-table.compact { min-width: 340px; font-size: 11px; }
-  table.week-table.compact th, table.week-table.compact td { padding: 4px 3px; }
-  table.week-table.compact tr:not(.gender-divider):nth-child(even) td,
-  table.week-table.compact tr:not(.gender-divider):nth-child(even) th { background: #f2f3f6; }
-  table.week-table.compact tr:not(.gender-divider):nth-child(odd) td,
-  table.week-table.compact tr:not(.gender-divider):nth-child(odd) th { background: #fff; }
-  .reorder-btns { display: inline-flex; gap: 2px; margin-left: 4px; }
-  .reorder-btn { cursor: pointer; font-size: 10px; color: #2f6fed; padding: 1px 3px; border-radius: 3px; background: #eef1ff; }
-  tr.gender-divider td { background: #f0f2f5; font-weight: 700; font-size: 11px; color: #1a56db; }
-  .floor-clickable { cursor: pointer; }
-  .worker-name-click { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
-  .date-edit-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; padding: 8px 10px; background: #f7f8fa; border-radius: 8px; }
-  .date-edit-toolbar button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; background: white; font-size: 12px; cursor: pointer; }
-  .date-edit-toolbar button.on { background: #2f6fed; color: white; border-color: #2f6fed; }
-  .date-edit-toolbar #dateEditStatus { font-size: 12px; color: #555; }
-  .date-cell { cursor: default; }
-  body.date-edit-mode .date-cell { cursor: pointer; }
-  body.date-edit-mode .date-cell:hover { outline: 2px solid #2f6fed; outline-offset: -2px; }
-  td.date-pending-on { background: #d7f5da !important; }
-  td.date-pending-off { background: #fddede !important; text-decoration: line-through; }
-  td.rowhead.rowhead-pending { background: #fff3cd !important; }
-  body.info-edit-mode .date-cell.floor-clickable:hover { outline: 2px solid #2f6fed; outline-offset: -2px; }
-  td.info-pending { outline: 2px solid #2f6fed; outline-offset: -2px; }
-  td.rowhead.infohead-pending { background: #e3f0ff !important; }
-  .info-edit-options { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -6px 0 10px; padding: 8px 10px; background: #eef4ff; border-radius: 8px; }
-  .info-edit-options-label { font-size: 12px; color: #555; font-weight: 700; }
-  .info-edit-floor-row { display: flex; flex-wrap: wrap; gap: 3px; }
-  .info-edit-floor-btn { font-size: 11px; padding: 4px 6px; border-radius: 5px; border: 1px solid #ccc; background: white; cursor: pointer; }
-  .info-edit-floor-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
-  .info-edit-flag-row { display: flex; flex-wrap: nowrap; gap: 10px; }
-  .info-edit-options label { font-size: 12px; display: flex; align-items: center; gap: 3px; cursor: pointer; white-space: nowrap; }
-  .mark-circle { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #e53e3e; border-radius: 50%; }
-  .mark-square { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid #1a1a1a; }
-  .mark-triangle-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
-  .mark-triangle { position: absolute; top: 1px; left: 0; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 17px solid #3182ce; }
-  .mark-char { position: relative; z-index: 1; color: white; font-weight: 700; font-size: 11px; }
-  .mark-label { color: #d97706; font-size: 9px; font-weight: 700; margin-top: 1px; }
-  .cnt.day { color: #856404; font-weight: 700; }
-  .cnt.night { color: #1a3d8f; font-weight: 700; }
-  .names { font-size: 11px; color: #555; margin-top: 2px; }
-  .location-tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 4px; }
-  .location-tab { flex-shrink: 0; padding: 8px 14px; border-radius: 20px; background: #e9eaee; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-  .location-tab.active { background: #2f6fed; color: white; }
-  .admin-section-title { font-weight: 700; margin: 18px 0 8px; font-size: 15px; border-top: 1px solid #eee; padding-top: 16px; }
-  .admin-section-title:first-child { border-top: none; padding-top: 0; }
-  .period-caption { font-size: 12px; color: #888; margin-bottom: 6px; }
-  .empty { text-align: center; color: #999; padding: 20px; font-size: 14px; }
-  #calendarSection { display: none; }
-  #applicationDetailsSection { display: none; }
-  .location-checkboxes { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; border: 1px solid #eee; border-radius: 10px; padding: 4px 12px; }
-  .location-checkboxes label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400; margin: 0; padding: 8px 0; border-bottom: 1px solid #f2f2f2; }
-  .location-checkboxes label:last-child { border-bottom: none; }
-  .location-checkboxes input[type=radio],
-  .location-checkboxes input[type=checkbox] { width: 18px; height: 18px; flex-shrink: 0; margin: 0; }
-
-  /* 배치판 (번호리스트형) */
-  .assign-date-card { background: white; border-radius: 12px; padding: 14px; margin-bottom: 10px; border: 1px solid #eee; }
-  .assign-date-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
-  .assign-date-toggle { font-size: 12px; color: #999; transition: transform 0.15s; }
-  .assign-date-card.collapsed .assign-date-toggle { transform: rotate(-90deg); }
-  .assign-date-card.collapsed .current-line,
-  .assign-date-card.collapsed .target-inputs,
-  .assign-date-card.collapsed .chip-row,
-  .assign-date-card.collapsed .batch-row,
-  .assign-date-card.collapsed .text-preview-wrap { display: none; }
-  .shift-block { margin-bottom: 14px; }
-  .shift-header-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 700; margin-bottom: 4px; }
-  .shift-header-row .tag { padding: 2px 6px; border-radius: 6px; font-size: 11px; }
-  .tag.day { background: #fff3cd; color: #856404; }
-  .tag.night { background: #d6e4ff; color: #1a3d8f; }
-  .target-inputs { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: #555; }
-  .target-inputs input { width: 44px; padding: 3px 4px; font-size: 12px; }
-  .target-inputs button { padding: 3px 8px; font-size: 11px; border-radius: 5px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
-  .current-line { font-size: 12px; color: #666; margin-bottom: 6px; }
-  .numbered-list { font-size: 13px; line-height: 1.7; margin-bottom: 4px; }
-  .numbered-list .gender-label { font-weight: 700; color: #999; margin: 4px 0 2px; font-size: 12px; }
-  .numbered-item { display: flex; align-items: center; }
-  .numbered-item label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-  .numbered-item input.assigned-select { width: 14px; height: 14px; margin: 0; }
-  .edu-badge { color: #2f6fed; font-weight: 700; }
-  .new-badge { color: #b35c00; font-weight: 700; }
-  .wage-badge { color: #c0392b; font-weight: 700; }
-  .edit-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 999; padding: 16px; }
-  .edit-overlay-card { background: white; border-radius: 14px; padding: 18px; max-width: 480px; width: 100%; max-height: 85vh; overflow-y: auto; }
-  .edit-overlay-title { font-weight: 700; font-size: 16px; margin-bottom: 10px; }
-  .loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 3000; display: none; align-items: center; justify-content: center; }
-  .loading-spinner { width: 42px; height: 42px; border: 4px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: loading-spin 0.8s linear infinite; }
-  @keyframes loading-spin { to { transform: rotate(360deg); } }
-  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .unassigned-chip { display: flex; align-items: center; gap: 3px; background: #f4f5f7; border-radius: 8px; padding: 4px 6px; font-size: 11px; flex-wrap: wrap; }
-  .unassigned-chip select { width: auto; padding: 3px; font-size: 11px; border-radius: 5px; }
-  .unassigned-chip label { display: flex; align-items: center; gap: 2px; font-size: 10px; margin: 0; font-weight: 400; }
-  .unassigned-chip input[type=checkbox] { width: auto; }
-  .unassigned-chip button { padding: 3px 8px; font-size: 11px; border-radius: 5px; border: none; background: #2f6fed; color: white; cursor: pointer; }
-  .text-preview-wrap { margin-top: 8px; }
-  .text-preview-wrap textarea { width: 100%; min-height: 140px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; background: #fffef0; resize: vertical; }
-  .text-preview-wrap button { margin-top: 4px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; background: white; cursor: pointer; }
-  .copy-msg { font-size: 11px; color: #1a7a34; margin-left: 6px; }
-  .loc-badge { display: inline-block; background: #eef1ff; color: #3949ab; font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 700; vertical-align: middle; }
-  .unassigned-chip input.batch-select { width: 16px; height: 16px; margin-right: 2px; }
-  .batch-row { display: flex; gap: 6px; margin-top: 4px; margin-bottom: 6px; }
-  .batch-all-btn { padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
-  .batch-all-btn.primary-batch { background: #2f6fed; color: white; border-color: #2f6fed; font-weight: 700; }
-  .batch-all-btn.danger-batch { background: #fdecea; color: #c0392b; border-color: #f5c6c1; font-weight: 700; }
-</style>
+<?!= include('SharedStyles'); ?>
 </head>
-<body>
+<body class="admin-active">
 <div class="container">
-  <h1>📋 근무 신청 시스템</h1>
-  <div class="sub">이번 주 월요일부터 2주간의 근무를 미리 신청할 수 있어요.</div>
-
-  <div class="tabs">
-    <div class="tab active" id="tabWorker" onclick="switchTab('worker')">신청 / 수정</div>
-    <div class="tab" id="tabAdmin" onclick="switchTab('admin')">관리자 보기</div>
-  </div>
-
-  <div id="workerView">
-    <div class="card" id="identityCard">
-      <div style="font-weight:700;">본인 확인</div>
-      <div class="sub">이름과 생년월일 앞 6자리(비밀번호 역할)로 기존 신청을 불러오거나 새로 신청하세요.</div>
-      <label>이름</label>
-      <input type="text" id="name" placeholder="홍길동">
-      <label>생년월일 6자리</label>
-      <input type="password" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
-      <label>연락처 (신규 신청 시 필요)</label>
-      <input type="tel" id="phone" placeholder="010-0000-0000">
-      <div id="lookupMsg"></div>
-      <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
-    </div>
-
-    <div class="card" id="applicationDetailsSection">
-      <label>성별</label>
-      <div id="genderRadios" class="location-checkboxes"></div>
-      <label>근무 장소 (해당되는 곳 한 곳만 선택)</label>
-      <div id="locationCheckboxes" class="location-checkboxes"></div>
-      <label>관리자에게 하고 싶은 말 (선택)</label>
-      <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
-      <textarea id="messageBox" rows="4" placeholder="예: 월화수목금토일 신청합니다.&#10;예:주간_월화수목금/야간_화수목금 신청합니다.&#10;예;월화수목금_신세계푸드/토일_BGF 신청합니다" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
-      <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:8px;"><span style="white-space:nowrap;">일자리 정보(광고성 정보) 수신에 동의합니다 (선택)</span><input type="checkbox" id="adConsent" style="width:18px; flex-shrink:0;"></label>
-    </div>
-
-    <div id="calendarSection">
-      <div class="card">
-        <div id="modeMsg"></div>
-        <div id="dateListContainer"></div>
-      </div>
-      <div id="resultMsg"></div>
-      <button class="primary" id="submitBtn" onclick="submitApplication()">저장하기</button>
-      <button class="danger" id="cancelBtn" onclick="cancelApplication()" style="display:none;">신청 전체 취소</button>
-      <button class="secondary" onclick="resetIdentity()">다른 사람으로 조회 / 처음으로</button>
-    </div>
-  </div>
-
-  <div id="adminView" style="display:none;">
+<?!= include('HamburgerMenu'); ?>
     <div id="adminLoginCard" class="card">
       <div style="font-weight:700; margin-bottom:8px;">관리자 비밀번호</div>
       <input type="password" id="adminPw" placeholder="비밀번호 입력">
@@ -261,8 +59,6 @@
         <div id="rosterContent"><div class="empty">불러오는 중...</div></div>
       </div>
     </div>
-  </div>
-
   <div id="pastHistoryOverlay" class="edit-overlay" style="display:none;">
     <div class="edit-overlay-card">
       <div class="edit-overlay-title" id="pastHistoryTitle">과거 이력 입력</div>
@@ -277,7 +73,6 @@
       <button class="primary" onclick="closePastHistoryOverlay()">닫기</button>
     </div>
   </div>
-
   <div id="adminAddOverlay" class="edit-overlay" style="display:none;">
     <div class="edit-overlay-card" style="position:relative; padding:0; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
       <button onclick="closeAdminAddOverlay()" style="position:absolute; top:10px; right:12px; border:none; background:none; font-size:20px; line-height:1; cursor:pointer; color:#888;">&times;</button>
@@ -310,10 +105,11 @@
       </div>
     </div>
   </div>
-
   <div id="adminEditOverlay" class="edit-overlay" style="display:none;">
     <div class="edit-overlay-card">
       <div class="edit-overlay-title" id="adminEditTitle">일정 수정</div>
+      <label>이름</label>
+      <input type="text" id="adminEditName" placeholder="이름">
       <label>연락처</label>
       <input type="tel" id="adminEditPhone" placeholder="010-0000-0000">
       <label>생년월일 6자리 (비어있으면 나중에 채워도 됩니다)</label>
@@ -326,36 +122,25 @@
     </div>
   </div>
 </div>
-
 <div id="loadingOverlay" class="loading-overlay"><div class="loading-spinner"></div></div>
-
+<script>var PAGE_KEY = 'admin'; var BASE_URL = '<?!= baseUrl ?>';</script>
+<?!= include('SharedScript'); ?>
 <script>
-const DAY_NAMES = ['일','월','화','수','목','금','토'];
-
 // ---- 새로고침해도 보던 스크롤 위치 유지 ----
-// 관리자 화면이었으면 데이터가 다 그려진 뒤에 복원해야 하므로 그쪽은 restoreScrollPending으로 미뤄둠
-let restoreScrollPending = false;
-if (localStorage.getItem('lastTab') !== 'admin') {
-  const savedScrollY = sessionStorage.getItem('scrollY');
-  if (savedScrollY !== null) window.scrollTo(0, parseInt(savedScrollY, 10));
-} else {
-  restoreScrollPending = true;
-}
+// 관리자 화면은 데이터가 다 그려진 뒤에 복원해야 하므로 restoreScrollPending으로 미뤄둠
+let restoreScrollPending = true;
 function applyPendingScrollRestore() {
   if (!restoreScrollPending) return;
   restoreScrollPending = false;
-  const y = sessionStorage.getItem('scrollY');
+  const y = sessionStorage.getItem('scrollY:' + PAGE_KEY);
   if (y !== null) requestAnimationFrame(function() { window.scrollTo(0, parseInt(y, 10)); });
 }
-let scrollSaveScheduled = false;
-window.addEventListener('scroll', function() {
-  if (scrollSaveScheduled) return;
-  scrollSaveScheduled = true;
-  requestAnimationFrame(function() {
-    sessionStorage.setItem('scrollY', window.scrollY);
-    scrollSaveScheduled = false;
-  });
-});
+// 근무자 배치/수정 등 데이터 변경 후 loadAdmin()/loadRoster()로 다시 그리기 직전에 호출해
+// 현재 스크롤 위치를 저장해두면, 렌더링이 끝난 뒤 applyPendingScrollRestore()가 복원해줌
+function saveScrollForRefresh() {
+  sessionStorage.setItem('scrollY:' + PAGE_KEY, window.scrollY);
+  restoreScrollPending = true;
+}
 
 // google.script.run 호출을 Promise로 감싸서 여러 개를 동시에 실행할 수 있게 함
 function runScript(fnName, ...args) {
@@ -414,11 +199,8 @@ function addScrollArrows(containerEl) {
     wrapper.appendChild(rightBtn);
   });
 }
+
 const FLOORS = ['1층','2층','3층','입출하','미화','날인실','기타'];
-const LOCATIONS = ['신세계푸드 원남','델몬트_원남','BGF푸드_진천','물류우리와_금왕','포장우리와_금왕','주방보조_전국','기타'];
-let selections = {};
-let currentName = '', currentPin = '';
-let isEditMode = false;
 let lastRecords = [], lastAssignments = [], lastTargets = [];
 let currentLocationFilter = '전체';
 let adminAuthenticated = false;
@@ -464,9 +246,6 @@ function wrapAdminRunHandlers_(run) {
   return run;
 }
 
-function formatDate(d) {
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-}
 function shortDate(dateStr) {
   const d = new Date(dateStr);
   return (d.getMonth()+1) + '/' + d.getDate() + '(' + DAY_NAMES[d.getDay()] + ')';
@@ -522,233 +301,8 @@ function copyTextArea(id, msgId) {
   }
 }
 
-function getTwoWeekDates() {
-  const today = new Date(); today.setHours(0,0,0,0);
-  const day = today.getDay(); // 0=일 ... 6=토
-  const diffToMonday = (day === 0) ? 6 : (day - 1); // 이번 주 월요일까지 며칠 되돌아가야 하는지
-  const start = new Date(today); start.setDate(today.getDate() - diffToMonday);
-  const dates = [];
-  for (let i = 0; i < 14; i++) { const d = new Date(start); d.setDate(start.getDate() + i); dates.push(d); }
-  return dates;
-}
-
-function renderLocationCheckboxes(selectedLocations) {
-  const container = document.getElementById('locationCheckboxes');
-  container.innerHTML = LOCATIONS.map(loc => {
-    const checked = (selectedLocations || []).indexOf(loc) > -1 ? 'checked' : '';
-    const id = 'loc_' + loc.replace(/[^a-zA-Z0-9가-힣]/g, '_');
-    return `<label><input type="radio" name="workLocation" id="${id}" value="${loc}" ${checked}>${loc}</label>`;
-  }).join('');
-}
-function getSelectedLocations() {
-  const checked = document.querySelector('input[name="workLocation"]:checked');
-  return checked ? [checked.value] : [];
-}
-
-function renderGenderRadios(selectedGender) {
-  const container = document.getElementById('genderRadios');
-  container.innerHTML = ['남','여'].map(g => {
-    const checked = (g === selectedGender) ? 'checked' : '';
-    return `<label><input type="radio" name="workerGender" id="gender_${g}" value="${g}" ${checked}>${g}</label>`;
-  }).join('');
-}
-function getSelectedGender() {
-  const checked = document.querySelector('input[name="workerGender"]:checked');
-  return checked ? checked.value : '';
-}
-
-// ---------- 근로자 신청 화면 ----------
-function buildDateList(prefill) {
-  const container = document.getElementById('dateListContainer');
-  container.innerHTML = '';
-  selections = {};
-  const dates = getTwoWeekDates();
-  const todayKey = formatDate(new Date());
-  dates.forEach((d, idx) => {
-    if (idx === 0 || idx === 7) {
-      const ws = d, we = new Date(d); we.setDate(d.getDate()+6);
-      const t = document.createElement('div');
-      t.className = 'week-title';
-      t.textContent = (idx===0?'1주차':'2주차') + ` (${ws.getMonth()+1}/${ws.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
-      container.appendChild(t);
-    }
-    const key = formatDate(d);
-    const dow = DAY_NAMES[d.getDay()];
-    selections[key] = { day: false, night: false };
-    if (prefill) {
-      const found = prefill.find(s => s.date === key);
-      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; }
-    }
-    const row = document.createElement('div');
-    row.className = 'date-row';
-    const isWeekend = (d.getDay()===0 || d.getDay()===6);
-    const isPast = key < todayKey;
-    const dayBtnClass = 'shift-btn' + (selections[key].day?' selected':'') + (isPast?' disabled':'');
-    const nightBtnClass = 'shift-btn' + (selections[key].night?' selected':'') + (isPast?' disabled':'');
-    const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
-    const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
-    row.innerHTML = `
-      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
-      <div class="shift-btns">
-        <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
-        <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
-      </div>`;
-    container.appendChild(row);
-  });
-}
-
-function toggleShift(key, type) {
-  selections[key][type] = !selections[key][type];
-  document.getElementById(type+'-'+key).classList.toggle('selected', selections[key][type]);
-}
-
-function lookupRecord() {
-  const name = document.getElementById('name').value.trim();
-  const pin = document.getElementById('pin').value.trim();
-  const phone = document.getElementById('phone').value.trim();
-  const msgEl = document.getElementById('lookupMsg');
-
-  msgEl.innerHTML = '';
-  if (!name || !/^[0-9]{6}$/.test(pin)) {
-    msgEl.innerHTML = '<div class="msg err">이름과 생년월일 6자리를 정확히 입력해주세요.</div>';
-    return;
-  }
-
-  currentName = name; currentPin = pin;
-  console.log("이름: %s, 생년월일: %s", currentName, currentPin);
-
-  document.getElementById('lookupBtn').disabled = true;
-  google.script.run
-    .withSuccessHandler(function(existing) {
-      document.getElementById('lookupBtn').disabled = false;
-      document.getElementById('name').disabled = true;
-      document.getElementById('pin').disabled = true;
-      document.getElementById('calendarSection').style.display = 'block';
-      document.getElementById('applicationDetailsSection').style.display = 'block';
-      if (existing) {
-        isEditMode = true;
-        document.getElementById('phone').value = existing.phone || '';
-        document.getElementById('phone').disabled = true;
-        renderGenderRadios(existing.gender);
-        renderLocationCheckboxes(existing.locations);
-        document.getElementById('messageBox').value = existing.message || '';
-        document.getElementById('adConsent').checked = existing.adConsent === 'Y';
-        buildDateList(existing.shifts);
-        document.getElementById('modeMsg').innerHTML = '<div class="msg info">기존 신청 내역을 불러왔습니다.</div>';
-        document.getElementById('cancelBtn').style.display = 'block';
-      } else {
-        isEditMode = false;
-        if (!phone) {
-          msgEl.innerHTML = '<div class="msg err">신규 신청은 연락처가 필요합니다.</div>';
-          document.getElementById('name').disabled = false;
-          document.getElementById('pin').disabled = false;
-          document.getElementById('calendarSection').style.display = 'none';
-          document.getElementById('applicationDetailsSection').style.display = 'none';
-          return;
-        }
-        renderGenderRadios('');
-        renderLocationCheckboxes([]);
-        document.getElementById('messageBox').value = '';
-        document.getElementById('adConsent').checked = false;
-        buildDateList(null);
-        document.getElementById('modeMsg').innerHTML = '<div class="msg info">근무신청하는 날짜의 (주간/야간)을 눌러서 체크해 주세요. 신청하지 않는 날짜는 그냥 비워두시면 됩니다</div>';
-        document.getElementById('cancelBtn').style.display = 'none';
-      }
-    })
-    .withFailureHandler(function(err) {
-      document.getElementById('lookupBtn').disabled = false;
-      msgEl.innerHTML = '<div class="msg err">조회 중 오류: ' + err.message + '</div>';
-    })
-    .lookupRecord(name, pin);
-}
-
-function submitApplication() {
-  const phone = document.getElementById('phone').value.trim();
-  const resultMsg = document.getElementById('resultMsg');
-  resultMsg.innerHTML = '';
-  const chosen = Object.entries(selections).filter(([k,v]) => v.day || v.night).map(([k,v]) => ({date:k, day:v.day, night:v.night}));
-  if (chosen.length === 0) {
-    resultMsg.innerHTML = '<div class="msg err">최소 하나의 날짜/시간대를 선택해주세요.</div>';
-    return;
-  }
-  const gender = getSelectedGender();
-  if (!gender) {
-    resultMsg.innerHTML = '<div class="msg err">성별을 선택해주세요.</div>';
-    return;
-  }
-  const locations = getSelectedLocations();
-  if (locations.length === 0) {
-    resultMsg.innerHTML = '<div class="msg err">근무 장소를 최소 하나 선택해주세요.</div>';
-    return;
-  }
-  const message = document.getElementById('messageBox').value.trim();
-  const adConsent = document.getElementById('adConsent').checked ? 'Y' : 'N';
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = '저장 중...';
-  google.script.run
-    .withSuccessHandler(function() {
-      btn.disabled = false; btn.textContent = '저장하기';
-      resultMsg.innerHTML = '<div class="msg ok">✅ ' + (isEditMode?'수정':'신청') + ' 완료되었습니다.</div>';
-      isEditMode = true;
-      document.getElementById('cancelBtn').style.display = 'block';
-    })
-    .withFailureHandler(function(err) {
-      btn.disabled = false; btn.textContent = '저장하기';
-      const msg = err.message.indexOf('Lock timeout') !== -1
-        ? '지금 신청자가 많아 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
-        : err.message;
-      resultMsg.innerHTML = '<div class="msg err">오류: ' + msg + '</div>';
-    })
-    .saveRecord(currentName, currentPin, phone, chosen, locations, message, gender, adConsent);
-}
-
-function cancelApplication() {
-  const resultMsg = document.getElementById('resultMsg');
-  google.script.run
-    .withSuccessHandler(function() {
-      resultMsg.innerHTML = '<div class="msg ok">신청이 전체 취소되었습니다.</div>';
-      resetIdentity();
-    })
-    .withFailureHandler(function(err) {
-      resultMsg.innerHTML = '<div class="msg err">취소 중 오류: ' + err.message + '</div>';
-    })
-    .deleteRecord(currentName, currentPin);
-}
-
-function resetIdentity() {
-  document.getElementById('name').value = ''; document.getElementById('name').disabled = false;
-  document.getElementById('pin').value = ''; document.getElementById('pin').disabled = false;
-  document.getElementById('phone').value = ''; document.getElementById('phone').disabled = false;
-  renderGenderRadios('');
-  renderLocationCheckboxes([]);
-  document.getElementById('messageBox').value = '';
-  document.getElementById('calendarSection').style.display = 'none';
-  document.getElementById('applicationDetailsSection').style.display = 'none';
-  document.getElementById('lookupMsg').innerHTML = '';
-  document.getElementById('resultMsg').innerHTML = '';
-  currentName = ''; currentPin = ''; isEditMode = false;
-}
 
 let adminSubView = 'board';
-
-function switchTab(tab) {
-  localStorage.setItem('lastTab', tab);
-  document.getElementById('tabWorker').classList.toggle('active', tab==='worker');
-  document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
-  document.getElementById('workerView').style.display = tab==='worker' ? 'block' : 'none';
-  document.getElementById('adminView').style.display = tab==='admin' ? 'block' : 'none';
-  document.body.classList.toggle('admin-active', tab==='admin');
-  if (tab === 'admin') {
-    if (adminAuthenticated) {
-      document.getElementById('adminLoginCard').style.display = 'none';
-      document.getElementById('adminMainArea').style.display = 'block';
-      switchAdminSubView(adminSubView);
-    } else {
-      document.getElementById('adminLoginCard').style.display = 'block';
-      document.getElementById('adminMainArea').style.display = 'none';
-    }
-  }
-}
 
 function switchAdminSubView(view) {
   adminSubView = view;
@@ -762,8 +316,7 @@ function switchAdminSubView(view) {
 }
 
 function refreshAdminSubView() {
-  sessionStorage.setItem('scrollY', window.scrollY);
-  restoreScrollPending = true;
+  saveScrollForRefresh();
   switchAdminSubView(adminSubView);
 }
 
@@ -797,7 +350,8 @@ function adminLogout() {
   localStorage.removeItem('adminPassword');
   document.getElementById('adminPw').value = '';
   document.getElementById('adminPwMsg').innerHTML = '';
-  switchTab('worker');
+  document.getElementById('adminMainArea').style.display = 'none';
+  document.getElementById('adminLoginCard').style.display = 'block';
 }
 
 // ---------- 관리자 화면 ----------
@@ -854,7 +408,7 @@ function setCellFloor(dateStr, shiftKey, key, floor) {
   const isNew = existing ? existing.isNew : false;
   const isWomenWage = existing ? existing.isWomenWage : false;
   adminRun()
-    .withSuccessHandler(function() { closeFloorMenu(); loadAdmin(); })
+    .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
 }
@@ -895,7 +449,7 @@ function showLocationMenu(evt, key) {
 
 function moveWorkerLocation(key, location) {
   adminRun()
-    .withSuccessHandler(function() { closeLocationMenu(); loadAdmin(); })
+    .withSuccessHandler(function() { closeLocationMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 장소 이동 오류: ' + err.message); })
     .setAdminLocation(key, location, adminPassword);
 }
@@ -905,7 +459,7 @@ function cancelWorkerApplicationCore_(key, onDone) {
   if (!rec) return;
   if (!confirm(rec.name + '님의 이번 신청을 전체 취소하시겠습니까? 되돌릴 수 없습니다.')) return;
   adminRun()
-    .withSuccessHandler(function() { onDone(); loadAdmin(); })
+    .withSuccessHandler(function() { onDone(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('근무 취소 오류: ' + err.message); })
     .deleteRecord(rec.name, rec.pin);
 }
@@ -1064,6 +618,7 @@ function saveAllOnScreen() {
     if (idx >= tasks.length) {
       msgEl.textContent = '✅ 전체 저장 완료';
       setTimeout(() => { msgEl.textContent = ''; }, 2500);
+      saveScrollForRefresh();
       if (adminSubView === 'roster') loadRoster(); else loadAdmin();
       return;
     }
@@ -1108,7 +663,7 @@ function saveBatchGender() {
     return;
   }
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>'; })
     .batchSetGender(list, adminPassword);
 }
@@ -1279,6 +834,7 @@ function saveDateEditChanges() {
       pendingDateChanges = {};
       dateEditMode = false;
       document.body.classList.remove('date-edit-mode');
+      saveScrollForRefresh();
       loadAdmin();
       return;
     }
@@ -1497,6 +1053,7 @@ function saveInfoEditChanges() {
       pendingInfoChanges = {};
       infoEditMode = false;
       document.body.classList.remove('info-edit-mode');
+      saveScrollForRefresh();
       loadAdmin();
     })
     .withFailureHandler(function(err) {
@@ -1508,7 +1065,7 @@ function saveInfoEditChanges() {
 
 function reorderWorker(keyA, keyB) {
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('순서 변경 오류: ' + err.message); })
     .swapSortOrder(keyA, keyB, adminPassword);
 }
@@ -1587,7 +1144,7 @@ function saveAdminRow(key, genderSelId, locSelId) {
   adminRun()
     .withSuccessHandler(function() {
       adminRun()
-        .withSuccessHandler(function() { loadAdmin(); })
+        .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
         .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
         .setAdminLocation(key, location, adminPassword);
     })
@@ -1598,7 +1155,7 @@ function saveAdminRow(key, genderSelId, locSelId) {
 function saveAdminGender(key, selId) {
   const val = document.getElementById(selId).value;
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('성별 저장 오류: ' + err.message); })
     .setAdminGender(key, val, adminPassword);
 }
@@ -1623,7 +1180,7 @@ function batchSaveApplicantLocations(tableId) {
     list.push({ key: key, location: sel.value });
   });
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('일괄저장 오류: ' + err.message); })
     .batchSetLocations(list, adminPassword);
 }
@@ -1839,6 +1396,7 @@ function deletePastHistoryEntry(ym) {
 function closePastHistoryOverlay() {
   document.getElementById('pastHistoryOverlay').style.display = 'none';
   pastHistoryKey = null;
+  saveScrollForRefresh();
   loadRoster();
   consumeOverlayHistory();
 }
@@ -2109,6 +1667,7 @@ function submitAllAdminAddRecords() {
     .then(function() {
       hideLoading();
       closeAdminAddOverlay();
+      saveScrollForRefresh();
       loadAdmin();
     })
     .catch(function(err) {
@@ -2129,6 +1688,7 @@ function openAdminEditShifts(key, name) {
   const existingShifts = rec ? (rec.shifts || []) : [];
   document.getElementById('adminEditTitle').textContent = name + '님 일정 수정';
   document.getElementById('adminEditMsg').innerHTML = '';
+  document.getElementById('adminEditName').value = name || '';
   document.getElementById('adminEditPhone').value = rec ? (rec.phone || '') : '';
   document.getElementById('adminEditPin').value = rec ? (rec.pin || '') : '';
 
@@ -2181,10 +1741,15 @@ function saveAdminShiftsEdit() {
   const shifts = Object.entries(adminEditSelections)
     .filter(([k,v]) => v.day || v.night)
     .map(([k,v]) => ({ date:k, day:v.day, night:v.night }));
+  const name = document.getElementById('adminEditName').value.trim();
   const phone = document.getElementById('adminEditPhone').value.trim();
   const pin = document.getElementById('adminEditPin').value.trim();
   const msgEl = document.getElementById('adminEditMsg');
 
+  if (!name) {
+    msgEl.innerHTML = '<div class="msg err">이름을 입력해주세요.</div>';
+    return;
+  }
   if (pin && !/^[0-9]{6}$/.test(pin)) {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
     return;
@@ -2195,12 +1760,13 @@ function saveAdminShiftsEdit() {
       adminRun()
         .withSuccessHandler(function() {
           closeAdminEditOverlay();
+          saveScrollForRefresh();
           loadAdmin();
         })
         .withFailureHandler(function(err) {
           msgEl.innerHTML = '<div class="msg err">연락처 저장 오류: ' + err.message + '</div>';
         })
-        .setContactInfo(adminEditKey, phone, pin, adminPassword);
+        .setContactInfo(adminEditKey, name, phone, pin, adminPassword);
     })
     .withFailureHandler(function(err) {
       msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>';
@@ -2340,7 +1906,7 @@ function saveTargetClick(date, shift) {
   const maleTarget = document.getElementById(`mt_${date}_${shift}`).value;
   const femaleTarget = document.getElementById(`ft_${date}_${shift}`).value;
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('목표 저장 오류: ' + err.message); })
     .saveTarget(date, shift, maleTarget, femaleTarget, adminPassword);
 }
@@ -2370,7 +1936,7 @@ function batchAssign(dateStr, shift) {
     list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
   });
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('일괄배치 오류: ' + err.message); })
     .batchSaveAssignments(list, adminPassword);
 }
@@ -2379,7 +1945,7 @@ function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWom
   const rec = lastRecords.find(r => r.key === key);
   const name = rec ? rec.name : '';
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
     .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
 }
@@ -2399,7 +1965,7 @@ function batchUnassign(dateStr, shift) {
   if (checked.length === 0) { alert('배치취소할 사람을 먼저 체크해주세요.'); return; }
   const list = Array.from(checked).map(cb => ({ date: dateStr, shift: shift, key: cb.dataset.key }));
   adminRun()
-    .withSuccessHandler(function() { loadAdmin(); })
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치취소 오류: ' + err.message); })
     .batchRemoveAssignments(list, adminPassword);
 }
@@ -2514,30 +2080,23 @@ function renderAdmin(records, assignments, targets) {
   applyPendingInfoCellStyles();
   applyPendingScrollRestore();
 }
-renderLocationCheckboxes([]);
-renderGenderRadios('');
-
 // 5분마다 관리자 화면에 입력된 내용을 자동 저장 (컴퓨터 오류/새로고침 대비)
 setInterval(function() {
-  const adminViewEl = document.getElementById('adminView');
-  if (adminAuthenticated && adminViewEl && adminViewEl.style.display === 'block') {
-    saveAllOnScreen();
-  }
+  if (adminAuthenticated) saveAllOnScreen();
 }, 5 * 60 * 1000);
 
-// ---- 브라우저를 껐다 켜도 관리자 로그인/화면 유지 ----
-// 비밀번호를 localStorage에 저장해뒀다가 서버에 재검증해서 통과하면 로그인 화면을 건너뛰고
-// 보고 있던 서브뷰(게시판/명단)로 바로 이동시킴. 실패하면 저장된 값을 지우고 그대로 로그인 화면 표시.
 (function restoreAdminSession() {
   const savedPw = localStorage.getItem('adminPassword');
-  if (!savedPw || localStorage.getItem('lastTab') !== 'admin') return;
+  if (!savedPw) return;
   adminRun()
     .withSuccessHandler(function(ok) {
       if (!ok) { localStorage.removeItem('adminPassword'); return; }
       adminAuthenticated = true;
       adminPassword = savedPw;
       adminSubView = localStorage.getItem('lastAdminSubView') || 'board';
-      switchTab('admin');
+      document.getElementById('adminLoginCard').style.display = 'none';
+      document.getElementById('adminMainArea').style.display = 'block';
+      switchAdminSubView(adminSubView);
     })
     .withFailureHandler(function() { localStorage.removeItem('adminPassword'); })
     .checkAdminPassword(savedPw);
