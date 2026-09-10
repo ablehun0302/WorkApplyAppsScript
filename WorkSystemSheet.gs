@@ -352,22 +352,27 @@ function findRow_(sheet, colIndex, value) {
 // ---- 신청 관련 ----
 // record: 기존 신청 내역(name+pin 정확히 일치), duplicateName: 이름은 같지만 pin(생년월일)이 다른 동명이인 존재 여부
 function lookupRecord(name, pin) {
-  const sheet = getDataSheet_();
-  const targetName = name.trim();
-  const targetPin = pin.trim();
-  const key = makeKey_(name, pin);
-  const data = sheet.getDataRange().getValues();
-  let record = null;
-  let duplicateName = false;
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === key) {
-      const v = data[i];
-      record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
-    } else if (data[i][1] === targetName && String(data[i][3]) !== targetPin) {
-      duplicateName = true;
+  try {
+    const sheet = getDataSheet_();
+    const targetName = name.trim();
+    const targetPin = pin.trim();
+    const key = makeKey_(name, pin);
+    const data = sheet.getDataRange().getValues();
+    let record = null;
+    let duplicateName = false;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        const v = data[i];
+        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
+      } else if (data[i][1] === targetName && String(data[i][3]) !== targetPin) {
+        duplicateName = true;
+      }
     }
+    return { record: record, duplicateName: duplicateName };
+  } catch (e) {
+    Logger.log('lookupRecord 실패 원인: ' + e.message);
+    throw e;
   }
-  return { record: record, duplicateName: duplicateName };
 }
 
 // 여러 명의 근무자를 한 번에 일괄 등록 (관리자 추가 화면에서 사용)
