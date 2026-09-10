@@ -8,16 +8,20 @@ function sanitizeSheetName_(name) {
   return name.replace(/[\/\\\?\*\[\]:]/g, '_').substring(0, 90);
 }
 
-function getRosterSheet_() {
+function getOrCreateSheet_(name, headers, textFormatCols) {
   const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Roster');
+  let sheet = ss.getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet('Roster');
-    sheet.appendRow(['key', 'healthCertExpiry', 'hireDate', 'sortOrder']);
-    sheet.getRange('B:C').setNumberFormat('@');
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+    if (textFormatCols) sheet.getRange(textFormatCols).setNumberFormat('@');
     cleanupDefaultSheets_(ss);
   }
   return sheet;
+}
+
+function getRosterSheet_() {
+  return getOrCreateSheet_('Roster', ['key', 'healthCertExpiry', 'hireDate', 'sortOrder'], 'B:C');
 }
 
 function getRosterData(adminPw) {
@@ -83,15 +87,7 @@ function swapSortOrder(keyA, keyB, adminPw) {
 
 // ---- 근로 이력 (자동: 배치 시 기록 / 수동: 과거 월별 입력) ----
 function getHistorySheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('History');
-  if (!sheet) {
-    sheet = ss.insertSheet('History');
-    sheet.appendRow(['histKey', 'key', 'date']);
-    sheet.getRange('C:C').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('History', ['histKey', 'key', 'date'], 'C:C');
 }
 
 function logHistory_(key, date) {
@@ -202,15 +198,7 @@ function removeCanceledAssignments_(key, oldShifts, newShifts) {
 }
 
 function getPastMonthlySheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('PastMonthly');
-  if (!sheet) {
-    sheet = ss.insertSheet('PastMonthly');
-    sheet.appendRow(['pmKey', 'key', 'yearMonth', 'days']);
-    sheet.getRange('C:C').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('PastMonthly', ['pmKey', 'key', 'yearMonth', 'days'], 'C:C');
 }
 
 function getPastMonthlyEntries(key, adminPw) {
@@ -318,39 +306,17 @@ function cleanupDefaultSheets_(ss) {
 }
 
 function getDataSheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Data');
-  if (!sheet) {
-    sheet = ss.insertSheet('Data');
-    sheet.appendRow(['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
-    cleanupDefaultSheets_(ss);
-  }
+  const sheet = getOrCreateSheet_('Data', ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
   sheet.getRange('D:D').setNumberFormat('@'); // pin 앞자리 0 유실 방지 (기존 시트에도 매번 적용)
   return sheet;
 }
 
 function getAssignSheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Assign');
-  if (!sheet) {
-    sheet = ss.insertSheet('Assign');
-    sheet.appendRow(['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location']);
-    sheet.getRange('B:B').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('Assign', ['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location'], 'B:B');
 }
 
 function getTargetSheet_() {
-  const ss = getSpreadsheet_();
-  let sheet = ss.getSheetByName('Target');
-  if (!sheet) {
-    sheet = ss.insertSheet('Target');
-    sheet.appendRow(['targetKey', 'date', 'shift', 'maleTarget', 'femaleTarget']);
-    sheet.getRange('B:B').setNumberFormat('@');
-    cleanupDefaultSheets_(ss);
-  }
-  return sheet;
+  return getOrCreateSheet_('Target', ['targetKey', 'date', 'shift', 'maleTarget', 'femaleTarget'], 'B:B');
 }
 
 function toDateStr_(value) {
