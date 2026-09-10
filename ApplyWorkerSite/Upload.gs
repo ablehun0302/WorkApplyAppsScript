@@ -99,6 +99,7 @@ function uploadFile(folderId, category, base64Data, mimeType, fileName) {
   try {
     folder = DriveApp.getFolderById(folderId);
   } catch (e) {
+    Logger.log('실패 원인: ' + e.message);
     throw new Error('잘못된 폴더입니다.');
   }
   const rootFolderId = PropertiesService.getScriptProperties().getProperty('ROOT_FOLDER_ID');

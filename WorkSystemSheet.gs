@@ -288,7 +288,7 @@ function getSpreadsheet_() {
   let ssId = props.getProperty('SS_ID');
   let ss = null;
   if (ssId) {
-    try { ss = SpreadsheetApp.openById(ssId); } catch (e) { ss = null; }
+    try { ss = SpreadsheetApp.openById(ssId); } catch (e) { Logger.log('실패 원인: ' + e.message); ss = null; }
   }
   if (!ss) {
     ss = SpreadsheetApp.create(NEW_SHEET_NAME);
@@ -727,7 +727,7 @@ function getKeyToLocationMap_() {
   const map = {};
   for (let i = 1; i < data.length; i++) {
     let locations = [];
-    try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) {}
+    try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
     map[data[i][0]] = data[i][7] || locations[0] || '';
   }
   return map;
