@@ -17,17 +17,18 @@
 
         <label>연락처</label>
         <input type="tel" id="phoneInput" required>
+        <p class="week-title">파일이 없는 항목은 새로 추가되고, 기존에 올린 파일이 있는 항목은 새로 올린 파일로 교체됩니다.</p>
 
-        <label>신분증 (필수)</label>
+        <label>신분증</label>
         <input type="file" id="idCardInput" accept="image/*,application/pdf" multiple>
 
-        <label>통장사본 (필수)</label>
+        <label>통장사본</label>
         <input type="file" id="bankbookInput" accept="image/*,application/pdf" multiple>
 
-        <label>보건증 (선택)</label>
+        <label>보건증</label>
         <input type="file" id="healthCertInput" accept="image/*,application/pdf" multiple>
 
-        <label>기타 서류 (선택)</label>
+        <label>기타 서류</label>
         <p class="hint">자격증, 비자, 여권 등..</p>
         <input type="file" id="etcInput" accept="image/*,application/pdf" multiple>
 
@@ -45,8 +46,8 @@
 // ---- 서류 제출 (GetWorkerIdSite에서 병합) ----
 var MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
 var CATEGORY_INPUTS = [
-  { category: '신분증', inputId: 'idCardInput', required: true },
-  { category: '통장사본', inputId: 'bankbookInput', required: true },
+  { category: '신분증', inputId: 'idCardInput', required: false },
+  { category: '통장사본', inputId: 'bankbookInput', required: false },
   { category: '보건증', inputId: 'healthCertInput', required: false },
   { category: '기타', inputId: 'etcInput', required: false }
 ];

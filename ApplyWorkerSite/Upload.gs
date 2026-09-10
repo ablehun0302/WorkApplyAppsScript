@@ -50,6 +50,19 @@ function test_uploadFile_() {
   } catch (e) {
     Logger.log('OK, zip 거부됨: ' + e.message);
   }
+
+  // 같은 category로 재업로드하면 기존 파일이 휴지통으로 가고 새 파일만 남아야 함
+  uploadFile(folderId, '신분증', tinyPngBase64, 'image/png', 'test2.png');
+  const folder = DriveApp.getFolderById(folderId);
+  const files = folder.getFiles();
+  let activeCount = 0;
+  while (files.hasNext()) {
+    const f = files.next();
+    if (f.getName().indexOf('신분증_') === 0 && !f.isTrashed()) activeCount++;
+  }
+  Logger.log(activeCount === 1
+    ? 'OK, 재업로드 시 기존 파일 교체됨 (활성 파일 ' + activeCount + '개)'
+    : 'FAIL: 활성 파일이 1개가 아님 (' + activeCount + '개)');
 }
 
 var MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -109,7 +122,16 @@ function uploadFile(folderId, category, base64Data, mimeType, fileName) {
   }
 
   var safeFileName = sanitizeFileName_(fileName);
-  const blob = Utilities.newBlob(decoded, mimeType, category + '_' + safeFileName);
+  var prefix = category + '_';
+  var existingFiles = folder.getFiles();
+  while (existingFiles.hasNext()) {
+    var existingFile = existingFiles.next();
+    if (existingFile.getName().indexOf(prefix) === 0) {
+      existingFile.setTrashed(true);
+    }
+  }
+
+  const blob = Utilities.newBlob(decoded, mimeType, prefix + safeFileName);
   const file = folder.createFile(blob);
   return { fileId: file.getId(), fileName: file.getName() };
 }
