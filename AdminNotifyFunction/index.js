@@ -5,12 +5,17 @@
 // 동작: Data 시트에서 notifiedAt(M열)이 비어있는 행(=아직 관리자에게 알리지 않은 신청)을 찾아
 // SOLAPI로 문자 발송 후 notifiedAt에 현재 시각을 기록한다. 같은 행을 두 번 알리지 않기 위한
 // 상태는 Firestore 등 별도 저장소 없이 시트 자체(M열)에 보관한다.
+//
+// 이미 알림을 보낸 사람이 신청일자(F열)만 바꿔서 재신청하는 경우를 감지하기 위해, 알림을
+// 보낼 때의 F열 값을 N열에 같이 저장해둔다. 다음 실행에서 F열 값이 N열과 다르면 "일정 변경"으로
+// 다시 알린다. N열이 비어있는(이 기능 도입 전에 이미 알림을 보낸) 행은 재알림 없이 현재 F열
+// 값만 채워 넣어 다음 비교부터 정상 동작하게 한다.
 
 const functions = require('@google-cloud/functions-framework');
 const { google } = require('googleapis');
 const crypto = require('crypto');
 
-const DATA_RANGE = 'Data!A2:M';
+const DATA_RANGE = 'Data!A2:N';
 
 functions.cloudEvent('checkNewApplications', async () => {
   const spreadsheetId = process.env.SPREADSHEET_ID;
@@ -23,13 +28,38 @@ functions.cloudEvent('checkNewApplications', async () => {
   const rows = res.data.values || [];
 
   const updates = [];
+  const newNames = [];
+  const changedNames = [];
   for (let i = 0; i < rows.length; i++) {
     const name = rows[i][1];
+    const shiftDate = rows[i][5];
     const notifiedAt = rows[i][12];
-    if (!name || notifiedAt) continue;
+    const notifiedShiftDate = rows[i][13];
+    if (!name) continue;
 
-    await sendSms_(process.env.ADMIN_NOTIFY_PHONE, `[근무 신청] ${name}님이 근무를 신청했습니다.`);
-    updates.push({ range: `Data!M${i + 2}`, values: [[new Date().toISOString()]] });
+    if (!notifiedAt) {
+      newNames.push(name);
+    } else if (!notifiedShiftDate) {
+      updates.push({ range: `Data!N${i + 2}`, values: [[shiftDate || '']] });
+      continue;
+    } else if (shiftDate !== notifiedShiftDate) {
+      changedNames.push(name);
+    } else {
+      continue;
+    }
+
+    updates.push(
+      { range: `Data!M${i + 2}`, values: [[new Date().toISOString()]] },
+      { range: `Data!N${i + 2}`, values: [[shiftDate || '']] }
+    );
+  }
+
+  const messages = [];
+  if (newNames.length > 0) messages.push(`[근무 신청] ${newNames.length}건: ${newNames.join(', ')}`);
+  if (changedNames.length > 0) messages.push(`[일정 변경] ${changedNames.length}건: ${changedNames.join(', ')}`);
+
+  if (messages.length > 0) {
+    await sendSms_(process.env.ADMIN_NOTIFY_PHONE, messages.join(' / '));
   }
 
   if (updates.length > 0) {
