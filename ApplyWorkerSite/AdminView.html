@@ -20,11 +20,34 @@
         <div class="location-tab" id="subtabBoard" onclick="switchAdminSubView('board')">📋 배치판 보기</div>
         <div class="location-tab" id="subtabRoster" onclick="switchAdminSubView('roster')">👥 전체신청자 목록</div>
       </div>
-      <div style="display:flex; justify-content:flex-start; gap:8px; margin-bottom:8px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; position:sticky; top:0; z-index:50; background:#f4f5f7; padding:8px 0; box-shadow:0 2px 4px rgba(0,0,0,0.08);">
-        <button class="primary" style="width:auto; padding:6px 14px; margin-top:0; flex-shrink:0; white-space:nowrap;" onclick="saveAllOnScreen()">💾 전체 저장</button>
-        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
-        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="refreshAdminSubView()">🔄 새로고침</button>
-        <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="adminLogout()">🚪 로그아웃</button>
+      <div id="adminStickyToolbar" style="position:sticky; top:0; z-index:50; background:#f4f5f7; box-shadow:0 2px 4px rgba(0,0,0,0.08);">
+        <div style="display:flex; justify-content:flex-start; gap:8px; margin-bottom:8px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding:8px 0;">
+          <button class="primary" style="width:auto; padding:6px 14px; margin-top:0; flex-shrink:0; white-space:nowrap;" onclick="saveAllOnScreen()">💾 전체 저장</button>
+          <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="openAdminAddOverlay()">➕ 근무자 추가</button>
+          <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="refreshAdminSubView()">🔄 새로고침</button>
+          <button class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="adminLogout()">🚪 로그아웃</button>
+          <button id="dateEditToggleBtn" class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="toggleDateEditMode()">📅 신청날짜 수정</button>
+          <button id="infoEditToggleBtn" class="secondary" style="width:auto; padding:6px 12px; flex-shrink:0; white-space:nowrap;" onclick="toggleInfoEditMode()">🏢 배치정보 수정</button>
+        </div>
+        <div id="dateEditToolbarWrap" class="date-edit-toolbar" style="margin:0 0 8px; display:none;">
+          <span id="dateEditStatus"></span>
+          <button id="dateEditSaveBtn" style="display:none;" onclick="saveDateEditChanges()">✅ 변경사항 저장 (<span id="dateEditCount">0</span>건)</button>
+          <button id="dateEditCancelBtn" style="display:none;" onclick="cancelDateEditChanges()">취소</button>
+        </div>
+        <div id="infoEditToolbarWrap" class="date-edit-toolbar" style="margin:0 0 8px; display:none;">
+          <span id="infoEditStatus"></span>
+          <button id="infoEditSaveBtn" style="display:none;" onclick="saveInfoEditChanges()">✅ 변경사항 저장 (<span id="infoEditCount">0</span>건)</button>
+          <button id="infoEditCancelBtn" style="display:none;" onclick="cancelInfoEditChanges()">취소</button>
+        </div>
+        <div id="infoEditOptions" class="info-edit-options" style="display:none;">
+          <span class="info-edit-options-label">적용할 값:</span>
+          <div class="info-edit-floor-row" id="infoEditFloorRow"></div>
+          <div class="info-edit-flag-row">
+            <label><input type="checkbox" id="infoEditEduCb" onchange="setInfoEditFlag('isEducation', this.checked)"> 교육</label>
+            <label><input type="checkbox" id="infoEditNewCb" onchange="setInfoEditFlag('isNew', this.checked)"> 신규</label>
+            <label><input type="checkbox" id="infoEditWageCb" onchange="setInfoEditFlag('isWomenWage', this.checked)"> 여임금</label>
+          </div>
+        </div>
       </div>
       <div id="saveAllMsg" style="text-align:right; margin-bottom:8px;"></div>
 
@@ -682,15 +705,6 @@ function buildWorkerWeekPair(weekDates, records, locationLabel, assignments) {
 let dateEditMode = false;
 let pendingDateChanges = {}; // { [key]: { [dateStr]: { day?: bool, night?: bool } } }
 
-function buildDateEditToolbar() {
-  return `<div class="date-edit-toolbar">
-    <button id="dateEditToggleBtn" onclick="toggleDateEditMode()">📅 신청날짜 수정</button>
-    <span id="dateEditStatus"></span>
-    <button id="dateEditSaveBtn" style="display:none;" onclick="saveDateEditChanges()">✅ 변경사항 저장 (<span id="dateEditCount">0</span>건)</button>
-    <button id="dateEditCancelBtn" style="display:none;" onclick="cancelDateEditChanges()">취소</button>
-  </div>`;
-}
-
 // compact 표의 날짜 칸 클릭: 신청날짜 수정모드면 신청 여부 토글, 배치정보 수정모드면 일괄수정 팝업, 아니면 기존처럼 층 배치 팝업
 function handleDateCellClick(evt, dateStr, shiftKey, key, hasShift) {
   if (dateEditMode) {
@@ -769,6 +783,7 @@ function countPendingDateChanges() {
 function syncDateEditToolbar() {
   const btn = document.getElementById('dateEditToggleBtn');
   if (!btn) return;
+  const wrap = document.getElementById('dateEditToolbarWrap');
   const saveBtn = document.getElementById('dateEditSaveBtn');
   const cancelBtn = document.getElementById('dateEditCancelBtn');
   const countEl = document.getElementById('dateEditCount');
@@ -777,6 +792,7 @@ function syncDateEditToolbar() {
 
   btn.textContent = dateEditMode ? '❌ 신청날짜 수정 종료' : '📅 신청날짜 수정';
   btn.classList.toggle('on', dateEditMode);
+  if (wrap) wrap.style.display = dateEditMode ? 'flex' : 'none';
   saveBtn.style.display = dateEditMode ? 'inline-block' : 'none';
   cancelBtn.style.display = dateEditMode ? 'inline-block' : 'none';
   saveBtn.disabled = count === 0;
@@ -855,26 +871,13 @@ let infoEditMode = false;
 let pendingInfoChanges = {}; // { [key]: { [dateStr]: { [shiftKey]: {floor, isEducation, isNew, isWomenWage} } } }
 let infoEditSelection = { floor: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
 
-function buildInfoEditToolbar() {
-  const floorBtns = ['', ...FLOORS].map(f =>
+(function renderInfoEditFloorButtons() {
+  const row = document.getElementById('infoEditFloorRow');
+  if (!row) return;
+  row.innerHTML = ['', ...FLOORS].map(f =>
     `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '지우기'}</button>`
   ).join('');
-  return `<div class="date-edit-toolbar">
-    <button id="infoEditToggleBtn" onclick="toggleInfoEditMode()">🏢 배치정보 수정</button>
-    <span id="infoEditStatus"></span>
-    <button id="infoEditSaveBtn" style="display:none;" onclick="saveInfoEditChanges()">✅ 변경사항 저장 (<span id="infoEditCount">0</span>건)</button>
-    <button id="infoEditCancelBtn" style="display:none;" onclick="cancelInfoEditChanges()">취소</button>
-  </div>
-  <div id="infoEditOptions" class="info-edit-options" style="display:none;">
-    <span class="info-edit-options-label">적용할 값:</span>
-    <div class="info-edit-floor-row">${floorBtns}</div>
-    <div class="info-edit-flag-row">
-      <label><input type="checkbox" id="infoEditEduCb" onchange="setInfoEditFlag('isEducation', this.checked)"> 교육</label>
-      <label><input type="checkbox" id="infoEditNewCb" onchange="setInfoEditFlag('isNew', this.checked)"> 신규</label>
-      <label><input type="checkbox" id="infoEditWageCb" onchange="setInfoEditFlag('isWomenWage', this.checked)"> 여임금</label>
-    </div>
-  </div>`;
-}
+})();
 
 function setInfoEditFloor(f) {
   infoEditSelection.floor = f;
@@ -968,6 +971,7 @@ function countPendingInfoChanges() {
 function syncInfoEditToolbar() {
   const btn = document.getElementById('infoEditToggleBtn');
   if (!btn) return;
+  const wrap = document.getElementById('infoEditToolbarWrap');
   const saveBtn = document.getElementById('infoEditSaveBtn');
   const cancelBtn = document.getElementById('infoEditCancelBtn');
   const countEl = document.getElementById('infoEditCount');
@@ -977,6 +981,7 @@ function syncInfoEditToolbar() {
 
   btn.textContent = infoEditMode ? '❌ 배치정보 수정 종료' : '🏢 배치정보 수정';
   btn.classList.toggle('on', infoEditMode);
+  if (wrap) wrap.style.display = infoEditMode ? 'flex' : 'none';
   saveBtn.style.display = infoEditMode ? 'inline-block' : 'none';
   cancelBtn.style.display = infoEditMode ? 'inline-block' : 'none';
   saveBtn.disabled = count === 0;
@@ -2045,8 +2050,6 @@ function renderAdmin(records, assignments, targets) {
   let html = buildLocationTabs();
   html += buildGenderFixPanel(filteredRecords);
   const locationLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
-  html += buildDateEditToolbar();
-  html += buildInfoEditToolbar();
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
 
