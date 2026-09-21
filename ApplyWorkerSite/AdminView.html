@@ -225,6 +225,13 @@ function addScrollArrows(containerEl) {
 
 const FLOORS = ['1층','2층','3층','입출하','미화','날인실','기타'];
 let lastRecords = [], lastAssignments = [], lastTargets = [];
+let dupNameSet = new Set(); // 이름이 겹치는 근무자가 있으면 화면에 생년월일을 덧붙여 구분
+
+// 동명이인이면 "이름(생년월일6자리)", 생년월일이 없으면 "이름(미상)"으로 표시
+function nameWithDupSuffix_(name, pin) {
+  if (!dupNameSet.has(name)) return name;
+  return name + '(' + (pin ? pin : '미상') + ')';
+}
 let currentLocationFilter = '전체';
 let adminAuthenticated = false;
 let adminPassword = ''; // 관리자 전용 서버 함수 호출 시 매번 함께 보내 서버에서 재검증
@@ -280,7 +287,7 @@ function floorRank(floor) {
   const idx = FLOORS.indexOf(floor);
   return idx === -1 ? 999 : idx;
 }
-function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList) {
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin) {
   const lines = [];
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
   lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
@@ -290,7 +297,8 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
-    lines.push(`남${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
+    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    lines.push(`남${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
   });
   lines.push('');
   if (femaleList.length === 0) lines.push('(여 배치 없음)');
@@ -298,7 +306,8 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
-    lines.push(`여${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
+    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    lines.push(`여${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
   });
   return lines.join('\n');
 }
@@ -503,7 +512,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
   const relevant = records.filter(rec => (rec.shifts || []).some(s => weekSet.has(s.date) && s[shiftKey]));
 
   const withMeta = relevant.map(rec => ({
-    key: rec.key, name: rec.name,
+    key: rec.key, name: rec.name, pin: rec.pin || '',
     gender: rec.adminGender || rec.gender || '',
     sortOrder: rec.sortOrder || 0,
     shifts: rec.shifts || []
@@ -531,7 +540,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
 
   function renderRow(r, groupList) {
     let nameCell;
-    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${r.name}</span>`;
+    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${nameWithDupSuffix_(r.name, r.pin)}</span>`;
     if (r.gender === '남' || r.gender === '여') {
       const posInGroup = groupList.findIndex(x => x.key === r.key);
       const upKey = posInGroup > 0 ? groupList[posInGroup-1].key : null;
@@ -662,7 +671,7 @@ function buildGenderFixPanel(records) {
   missing.forEach(rec => {
     const selId = 'gbatch_' + rec.key;
     html += `<div class="unassigned-chip" style="margin-bottom:6px;">
-      <span>${rec.name}</span>
+      <span>${nameWithDupSuffix_(rec.name, rec.pin)}</span>
       <select id="${selId}" data-key="${rec.key}" class="gender-batch-select">
         <option value="">-</option><option value="남">남</option><option value="여">여</option>
       </select>
@@ -1089,7 +1098,7 @@ function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
       weekDates.forEach(d => {
         const full = (byDate[formatDate(d)] && byDate[formatDate(d)][shiftKey]) || [];
         const list = sortByCount(filterGender(full, g));
-        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>p.name).join('<br>')||'-'}</div></td>`;
+        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>nameWithDupSuffix_(p.name, p.pin)).join('<br>')||'-'}</div></td>`;
       });
       html += '</tr>';
     });
@@ -1783,7 +1792,7 @@ function floorOptionsHtml() {
   return FLOORS.map(f => `<option value="${f}">${f}</option>`).join('');
 }
 
-function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowedKeys, keyToLocation, keyToTotalCount) {
+function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowedKeys, keyToLocation, keyToPin, keyToTotalCount) {
   const shiftLabel = shift === 'day' ? '주간' : '야간';
   const shiftClass = shift === 'day' ? 'day' : 'night';
   const assignedForSlot = assignments.filter(a => a.date === dateStr && a.shift === shift && (!allowedKeys || allowedKeys.has(a.key)));
@@ -1817,7 +1826,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</label></div>`;
+    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
   html += '<div class="gender-label">여</div>';
   if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
@@ -1826,7 +1836,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${a.name}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</label></div>`;
+    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
   html += '</div>';
   if (assignedForSlot.length > 0) {
@@ -1849,7 +1860,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const genderOpts = ['남','여'].map(g => `<option value="${g}" ${g===p.gender?'selected':''}>${g}</option>`).join('');
       html += `<div class="unassigned-chip">
         <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${p.name}">
-        <span>${p.name}${locTag}</span>
+        <span>${nameWithDupSuffix_(p.name, p.pin)}${locTag}</span>
         <select id="${gId}">${genderOpts}</select>
         <select id="${fId}">${floorOptionsHtml()}</select>
         <label><input type="checkbox" id="${eId}">교육</label>
@@ -1867,7 +1878,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
 
   const taId = `text_${dateStr}_${shift}`;
   const msgId = `copymsg_${dateStr}_${shift}`;
-  const previewText = buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList);
+  const previewText = buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin);
   html += `<div class="text-preview-wrap">
     <textarea id="${taId}" readonly>${previewText}</textarea>
     <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
@@ -1878,7 +1889,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   return html;
 }
 
-function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, keyToLocation, keyToWeek1Count, keyToWeek2Count, week1Set) {
+function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, keyToLocation, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set) {
   let html = '<div class="admin-section-title">날짜별 배치판</div>';
   const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
@@ -1898,8 +1909,8 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
     const titleBadge = currentLocationFilter !== '전체' ? ` <span class="loc-badge">${viewLabel}</span>` : '';
     html += `<div class="assign-date-title" onclick="this.closest('.assign-date-card').classList.toggle('collapsed')"><span>${shortDate(dateStr)}${titleBadge}</span><span class="assign-date-toggle">▼</span></div>`;
     html += `<div class="assign-date-body">`;
-    html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, keyToLocation, keyToTotalCount);
-    html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, keyToLocation, keyToTotalCount);
+    html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, keyToLocation, keyToPin, keyToTotalCount);
+    html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, keyToLocation, keyToPin, keyToTotalCount);
     html += `</div>`;
     html += `</div>`;
   });
@@ -2012,6 +2023,10 @@ function loadAdmin() {
 function renderAdmin(records, assignments, targets) {
   const content = document.getElementById('adminContent');
 
+  const nameCounts = {};
+  (records || []).forEach(rec => { nameCounts[rec.name] = (nameCounts[rec.name] || 0) + 1; });
+  dupNameSet = new Set(Object.keys(nameCounts).filter(n => nameCounts[n] > 1));
+
   const filteredRecords = (currentLocationFilter === '전체')
     ? (records || [])
     : (records || []).filter(rec => {
@@ -2025,8 +2040,8 @@ function renderAdmin(records, assignments, targets) {
     const gnd = rec.adminGender || rec.gender || '';
     (rec.shifts||[]).forEach(s => {
       if (!byDate[s.date]) byDate[s.date] = { day: [], night: [] };
-      if (s.day) byDate[s.date].day.push({ key: rec.key, name: rec.name, location: loc, gender: gnd });
-      if (s.night) byDate[s.date].night.push({ key: rec.key, name: rec.name, location: loc, gender: gnd });
+      if (s.day) byDate[s.date].day.push({ key: rec.key, name: rec.name, pin: rec.pin || '', location: loc, gender: gnd });
+      if (s.night) byDate[s.date].night.push({ key: rec.key, name: rec.name, pin: rec.pin || '', location: loc, gender: gnd });
     });
   });
 
@@ -2039,10 +2054,12 @@ function renderAdmin(records, assignments, targets) {
   const w2Start = shortDate(formatDate(week2[0])), w2End = shortDate(formatDate(week2[6]));
 
   const keyToLocation = {};
+  const keyToPin = {};
   const keyToWeek1Count = {};
   const keyToWeek2Count = {};
   (records || []).forEach(rec => {
     keyToLocation[rec.key] = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
+    keyToPin[rec.key] = rec.pin || '';
     keyToWeek1Count[rec.key] = (rec.shifts || []).filter(s => week1Set.has(s.date)).length;
     keyToWeek2Count[rec.key] = (rec.shifts || []).filter(s => week2Set.has(s.date)).length;
   });
@@ -2059,7 +2076,7 @@ function renderAdmin(records, assignments, targets) {
     filteredRecords.map(r => r.key)
       .concat((assignments || []).filter(a => a.location === currentLocationFilter).map(a => a.key))
   );
-  html += buildAssignBoard(allDates, byDate, assignments || [], targets || [], allowedKeys, keyToLocation, keyToWeek1Count, keyToWeek2Count, week1Set);
+  html += buildAssignBoard(allDates, byDate, assignments || [], targets || [], allowedKeys, keyToLocation, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set);
 
   if (filteredRecords.length > 0) {
     html += buildApplicantTable(filteredRecords, week1Set, '1주차', w1Start, w1End);
