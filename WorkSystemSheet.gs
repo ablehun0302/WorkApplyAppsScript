@@ -312,7 +312,7 @@ function getDataSheet_() {
 }
 
 function getAssignSheet_() {
-  return getOrCreateSheet_('Assign', ['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location'], 'B:B');
+  return getOrCreateSheet_('Assign', ['assignKey', 'date', 'shift', 'key', 'name', 'gender', 'floor', 'isEducation', 'isNew', 'isWomenWage', 'location', 'transport'], 'B:B');
 }
 
 function getTargetSheet_() {
@@ -750,13 +750,14 @@ function getAssignments(adminPw) {
       isEducation: data[i][7] === true || data[i][7] === 'TRUE',
       isNew: data[i][8] === true || data[i][8] === 'TRUE',
       isWomenWage: data[i][9] === true || data[i][9] === 'TRUE',
-      location: data[i][10] || ''
+      location: data[i][10] || '',
+      transport: data[i][11] || ''
     });
   }
   return list;
 }
 
-function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPw) {
+function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, transport, adminPw) {
   requireAdmin_(adminPw);
   // 더블클릭 등으로 요청이 거의 동시에 두 번 들어오면 둘 다 findRow_에서 "없음"으로 보고
   // 각각 appendRow 하여 중복 행이 생길 수 있어(saveRecord와 동일한 문제), 찾기~쓰기 구간을 잠근다.
@@ -768,9 +769,9 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     const row = findRow_(sheet, 0, assignKey);
     const location = getKeyToLocationMap_()[key] || '';
     const assignGender = isWomenWage ? '여' : gender;
-    const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location];
+    const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location, transport || ''];
     if (row === -1) sheet.appendRow(rowData);
-    else sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+    else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
     logHistory_(key, date);
   } finally {
     lock.releaseLock();
@@ -793,13 +794,13 @@ function batchSaveAssignments(list, adminPw) {
     list.forEach(item => {
       const assignKey = makeAssignKey_(item.date, item.shift, item.key);
       const assignGender = item.isWomenWage ? '여' : item.gender;
-      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || ''];
+      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || '', item.transport || ''];
       const row = keyToRow[assignKey];
       if (!row) {
         sheet.appendRow(rowData);
         keyToRow[assignKey] = sheet.getLastRow();
       } else {
-        sheet.getRange(row, 1, 1, 11).setValues([rowData]);
+        sheet.getRange(row, 1, 1, 12).setValues([rowData]);
       }
     });
 
