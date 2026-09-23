@@ -42,6 +42,7 @@
         <div id="infoEditOptions" class="info-edit-options" style="display:none;">
           <span class="info-edit-options-label">적용할 값:</span>
           <div class="info-edit-floor-row" id="infoEditFloorRow"></div>
+          <div class="info-edit-floor-row" id="infoEditTransportRow"></div>
           <div class="info-edit-flag-row">
             <label><input type="checkbox" id="infoEditEduCb" onchange="setInfoEditFlag('isEducation', this.checked)"> 교육</label>
             <label><input type="checkbox" id="infoEditNewCb" onchange="setInfoEditFlag('isNew', this.checked)"> 신규</label>
@@ -223,7 +224,43 @@ function addScrollArrows(containerEl) {
   });
 }
 
-const FLOORS = ['1층','2층','3층','입출하','미화','날인실','기타'];
+// 업체별 배치정보 옵션. 목록이 없는 업체는 DEFAULT_FLOORS를 쓰고, 이동수단은 목록이 있는 업체만 표시한다.
+const DEFAULT_FLOORS = ['1층','2층','3층','입출하','미화','날인실','기타'];
+const FLOORS_BY_LOCATION = {
+  '델몬트_원남': ['음성','충주','청주','괴산','금왕','진천','기타'],
+  '포장우리와_금왕': ['포장','원료','기타'],
+  '물류우리와_금왕': ['검수','주간지게','야간지게','재적재','기타']
+};
+const TRANSPORTS_BY_LOCATION = { '델몬트_원남': ['버스','자차'] };
+function floorsFor(loc) {
+  if (loc === '전체') return Array.from(new Set([].concat(DEFAULT_FLOORS, ...Object.values(FLOORS_BY_LOCATION))));
+  return FLOORS_BY_LOCATION[loc] || DEFAULT_FLOORS;
+}
+function transportsFor(loc) {
+  if (loc === '전체') return Array.from(new Set([].concat(...Object.values(TRANSPORTS_BY_LOCATION))));
+  return TRANSPORTS_BY_LOCATION[loc] || [];
+}
+// '기타' 선택 시 내용을 직접 입력받아 그 글자를 층 값으로 쓴다. 취소하면 null, 비워두면 '기타'.
+// 입력값이 HTML/onclick 속성에 그대로 들어가므로 따옴표·꺾쇠는 제거한다.
+function promptEtcFloor_() {
+  const text = prompt('기타 내용을 입력하세요');
+  if (text === null) return null;
+  return text.replace(/[<>"'`\\]/g, '').trim() || '기타';
+}
+function onFloorSelectChange(sel) {
+  if (sel.value !== '기타') return;
+  const text = promptEtcFloor_();
+  if (text === null || text === '기타') return;
+  const opt = document.createElement('option');
+  opt.value = text;
+  opt.textContent = text;
+  sel.appendChild(opt);
+  sel.value = text;
+}
+function workerLocation(key) {
+  const rec = lastRecords.find(r => r.key === key);
+  return rec ? (rec.adminLocation || (rec.locations && rec.locations[0]) || '') : '';
+}
 let lastRecords = [], lastAssignments = [], lastTargets = [];
 let dupNameSet = new Set(); // 이름이 겹치는 근무자가 있으면 화면에 생년월일을 덧붙여 구분
 
@@ -283,9 +320,13 @@ function shortDate(dateStr) {
 function floorSuffix(floor) {
   return ['1층','2층','3층'].indexOf(floor) > -1 ? floor.replace('층','') : floor;
 }
-function floorRank(floor) {
-  const idx = FLOORS.indexOf(floor);
+function floorRank(floor, loc) {
+  const idx = floorsFor(loc).indexOf(floor);
   return idx === -1 ? 999 : idx;
+}
+// 텍스트/목록에 쓰는 "층_이동수단" 표시값 (이동수단이 없으면 층만)
+function floorLabel(a) {
+  return [floorSuffix(a.floor), a.transport].filter(Boolean).join('_');
 }
 function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin) {
   const lines = [];
@@ -298,7 +339,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
-    lines.push(`남${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
+    lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
   });
   lines.push('');
   if (femaleList.length === 0) lines.push('(여 배치 없음)');
@@ -307,7 +348,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
-    lines.push(`여${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}`);
+    lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
   });
   return lines.join('\n');
 }
@@ -389,11 +430,12 @@ function adminLogout() {
 // ---------- 관리자 화면 ----------
 const WEEKDAY_LABELS = ['월','화','수','목','금','토','일'];
 
-function renderFloorMark(char, floor) {
+function renderFloorMark(char, floor, transport) {
   if (floor === '1층') return `<span class="mark-circle">${char}</span>`;
   if (floor === '2층') return `<span class="mark-triangle-wrap"><span class="mark-triangle"></span><span class="mark-char">${char}</span></span>`;
   if (floor === '3층') return `<span class="mark-square">${char}</span>`;
-  if (floor) return `${char}<div class="mark-label">${floor}</div>`;
+  const label = [floor, transport].filter(Boolean).join('·');
+  if (label) return `${char}<div class="mark-label">${label}</div>`;
   return char;
 }
 
@@ -415,34 +457,56 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
   if (top + 260 > window.innerHeight) top = Math.max(4, rect.top - 264);
   menu.style.top = top + 'px';
   menu.style.left = left + 'px';
-  FLOORS.forEach(f => {
+  const loc = workerLocation(key);
+  floorsFor(loc).forEach(f => {
     const btn = document.createElement('button');
     btn.textContent = f;
     btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fafafa; border-radius:6px; cursor:pointer; text-align:left;';
-    btn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, f); };
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      const value = f === '기타' ? promptEtcFloor_() : f;
+      if (value !== null) setCellFloor(dateStr, shiftKey, key, value);
+    };
     menu.appendChild(btn);
   });
+  const transports = transportsFor(loc);
+  if (transports.length > 0) {
+    const sep = document.createElement('div');
+    sep.textContent = '이동수단';
+    sep.style.cssText = 'font-size:11px; color:#888; padding:4px 10px 0; border-top:1px solid #eee; margin-top:2px;';
+    menu.appendChild(sep);
+    transports.forEach(t => {
+      const btn = document.createElement('button');
+      btn.textContent = t;
+      btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#f0f6ff; border-radius:6px; cursor:pointer; text-align:left;';
+      btn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, undefined, t); };
+      menu.appendChild(btn);
+    });
+  }
   const clearBtn = document.createElement('button');
   clearBtn.textContent = '지우기';
   clearBtn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fdecea; color:#c0392b; border-radius:6px; cursor:pointer; text-align:left;';
-  clearBtn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, ''); };
+  clearBtn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, '', ''); };
   menu.appendChild(clearBtn);
   document.body.appendChild(menu);
   setTimeout(() => document.addEventListener('click', closeFloorMenu, { once: true }), 0);
 }
 
-function setCellFloor(dateStr, shiftKey, key, floor) {
+// floor/transport 중 undefined로 넘긴 값은 기존 배치값을 그대로 유지한다
+function setCellFloor(dateStr, shiftKey, key, floor, transport) {
   const rec = lastRecords.find(r => r.key === key);
   const gender = (rec && (rec.adminGender || rec.gender)) || '남';
   const name = rec ? rec.name : '';
   const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+  const floorVal = floor !== undefined ? floor : (existing ? existing.floor : '');
+  const transportVal = transport !== undefined ? transport : (existing ? existing.transport : '');
   const isEducation = existing ? existing.isEducation : false;
   const isNew = existing ? existing.isNew : false;
   const isWomenWage = existing ? existing.isWomenWage : false;
   adminRun()
     .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
-    .saveAssignment(dateStr, shiftKey, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
+    .saveAssignment(dateStr, shiftKey, key, name, gender, floorVal, isEducation, isNew, isWomenWage, transportVal, adminPassword);
 }
 
 function closeLocationMenu() {
@@ -564,7 +628,8 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       }
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
-      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor)}</td>`;
+      const transport = asg ? asg.transport : '';
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -877,20 +942,49 @@ function saveDateEditChanges() {
 
 // ---------- compact 표에서 배치정보(층/교육/신규/여임금) 일괄 수정(모드) ----------
 let infoEditMode = false;
-let pendingInfoChanges = {}; // { [key]: { [dateStr]: { [shiftKey]: {floor, isEducation, isNew, isWomenWage} } } }
-let infoEditSelection = { floor: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
+let pendingInfoChanges = {}; // { [key]: { [dateStr]: { [shiftKey]: {floor, transport, isEducation, isNew, isWomenWage} } } }
+let infoEditSelection = { floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
 
-(function renderInfoEditFloorButtons() {
+// 현재 근무지 탭에 맞는 층/이동수단 버튼을 그린다('전체' 탭은 모든 업체의 옵션)
+function renderInfoEditFloorButtons() {
   const row = document.getElementById('infoEditFloorRow');
-  if (!row) return;
-  row.innerHTML = ['', ...FLOORS].map(f =>
-    `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '지우기'}</button>`
+  const tRow = document.getElementById('infoEditTransportRow');
+  if (!row || !tRow) return;
+  const floors = floorsFor(currentLocationFilter);
+  const transports = transportsFor(currentLocationFilter);
+  if (floors.indexOf(infoEditSelection.floor) === -1) infoEditSelection.floor = '';
+  if (transports.indexOf(infoEditSelection.transport) === -1) infoEditSelection.transport = '';
+  row.innerHTML = ['', ...floors].map(f => f === '기타'
+    ? `<button type="button" class="info-edit-floor-btn" id="infoEditEtcBtn" data-floor="기타" onclick="setInfoEditEtcFloor()">기타</button>`
+    : `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '지우기'}</button>`
   ).join('');
-})();
+  tRow.innerHTML = transports.length === 0 ? '' : ['', ...transports].map(t =>
+    `<button type="button" class="info-edit-floor-btn" data-transport="${t}" onclick="setInfoEditTransport('${t}')">${t || '이동수단 없음'}</button>`
+  ).join('');
+  tRow.style.display = transports.length === 0 ? 'none' : '';
+}
+renderInfoEditFloorButtons();
+
+function setInfoEditEtcFloor() {
+  const text = promptEtcFloor_();
+  if (text !== null) setInfoEditFloor(text);
+}
 
 function setInfoEditFloor(f) {
   infoEditSelection.floor = f;
-  document.querySelectorAll('.info-edit-floor-btn').forEach(b => b.classList.toggle('selected', b.dataset.floor === f));
+  // 목록에 없는 값(기타 직접 입력)이면 기타 버튼에 그 값을 달아 선택 표시한다
+  const etcBtn = document.getElementById('infoEditEtcBtn');
+  if (etcBtn) {
+    const isCustom = f !== '' && floorsFor(currentLocationFilter).indexOf(f) === -1;
+    etcBtn.dataset.floor = isCustom ? f : '기타';
+    etcBtn.textContent = isCustom ? '기타: ' + f : '기타';
+  }
+  document.querySelectorAll('.info-edit-floor-btn[data-floor]').forEach(b => b.classList.toggle('selected', b.dataset.floor === f));
+}
+
+function setInfoEditTransport(t) {
+  infoEditSelection.transport = t;
+  document.querySelectorAll('.info-edit-floor-btn[data-transport]').forEach(b => b.classList.toggle('selected', b.dataset.transport === t));
 }
 
 function setInfoEditFlag(flag, checked) {
@@ -902,23 +996,24 @@ function setInfoEditFlag(flag, checked) {
 function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
   const target = {
     floor: infoEditSelection.floor,
+    transport: infoEditSelection.transport,
     isEducation: infoEditSelection.isEducation,
     isNew: infoEditSelection.isNew,
     isWomenWage: infoEditSelection.isWomenWage
   };
   const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-  const original = { floor: asg ? asg.floor : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+  const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
   const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
   const current = pending || original;
-  const alreadyApplied = current.floor === target.floor && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage;
+  const alreadyApplied = current.floor === target.floor && current.transport === target.transport && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage;
 
   setPendingInfo(dateStr, shiftKey, key, alreadyApplied ? original : target);
 }
 
 function setPendingInfo(dateStr, shiftKey, key, values) {
   const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-  const original = { floor: asg ? asg.floor : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
-  const same = values.floor === original.floor && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage;
+  const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+  const same = values.floor === original.floor && values.transport === original.transport && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage;
 
   if (!pendingInfoChanges[key]) pendingInfoChanges[key] = {};
   if (same) {
@@ -944,11 +1039,11 @@ function applyInfoCellPendingStyle(dateStr, shiftKey, key) {
   const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
   if (pending) {
     cell.classList.add('info-pending');
-    cell.innerHTML = renderFloorMark(wchar, pending.floor);
+    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport);
   } else {
     cell.classList.remove('info-pending');
     const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '');
+    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '');
   }
 }
 
@@ -1000,7 +1095,8 @@ function syncInfoEditToolbar() {
 
   if (optionsEl) {
     optionsEl.style.display = infoEditMode ? 'flex' : 'none';
-    optionsEl.querySelectorAll('.info-edit-floor-btn').forEach(b => b.classList.toggle('selected', b.dataset.floor === infoEditSelection.floor));
+    optionsEl.querySelectorAll('.info-edit-floor-btn[data-floor]').forEach(b => b.classList.toggle('selected', b.dataset.floor === infoEditSelection.floor));
+    optionsEl.querySelectorAll('.info-edit-floor-btn[data-transport]').forEach(b => b.classList.toggle('selected', b.dataset.transport === infoEditSelection.transport));
     const eduCb = document.getElementById('infoEditEduCb'); if (eduCb) eduCb.checked = infoEditSelection.isEducation;
     const newCb = document.getElementById('infoEditNewCb'); if (newCb) newCb.checked = infoEditSelection.isNew;
     const wageCb = document.getElementById('infoEditWageCb'); if (wageCb) wageCb.checked = infoEditSelection.isWomenWage;
@@ -1030,7 +1126,8 @@ function toggleInfoEditMode() {
   }
   clearPendingInfoChanges_();
   infoEditMode = !infoEditMode;
-  if (infoEditMode) infoEditSelection = { floor: '', isEducation: false, isNew: false, isWomenWage: false };
+  if (infoEditMode) infoEditSelection = { floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false };
+  renderInfoEditFloorButtons();
   document.body.classList.toggle('info-edit-mode', infoEditMode);
   syncInfoEditToolbar();
 }
@@ -1052,7 +1149,7 @@ function saveInfoEditChanges() {
     Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
       Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => {
         const v = pendingInfoChanges[key][dateStr][shiftKey];
-        list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
+        list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
       });
     });
   });
@@ -1788,8 +1885,8 @@ function saveAdminShiftsEdit() {
     .adminUpdateShifts(adminEditKey, shifts, adminPassword);
 }
 
-function floorOptionsHtml() {
-  return FLOORS.map(f => `<option value="${f}">${f}</option>`).join('');
+function floorOptionsHtml(loc) {
+  return floorsFor(loc).map(f => `<option value="${f}">${f}</option>`).join('');
 }
 
 function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowedKeys, keyToLocation, keyToPin, keyToTotalCount) {
@@ -1801,7 +1898,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   const genderRank = (g) => g === '남' ? 0 : 1;
   const unassigned = applicants.filter(p => !assignedKeys.has(p.key))
     .sort((a,b) => (genderRank(a.gender) - genderRank(b.gender)) || a.name.localeCompare(b.name, 'ko'));
-  const byFloorThenCount = (a,b) => (floorRank(a.floor) - floorRank(b.floor)) || (cnt(b.key) - cnt(a.key));
+  const locOf = (a) => (keyToLocation && keyToLocation[a.key]) || a.location;
+  const byFloorThenCount = (a,b) => (floorRank(a.floor, locOf(a)) - floorRank(b.floor, locOf(b))) || (cnt(b.key) - cnt(a.key));
   const maleList = assignedForSlot.filter(a => a.gender === '남').sort(byFloorThenCount);
   const femaleList = assignedForSlot.filter(a => a.gender === '여').sort(byFloorThenCount);
   const maleTarget = target ? target.maleTarget : 0;
@@ -1827,7 +1925,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
     const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</label></div>`;
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
   html += '<div class="gender-label">여</div>';
   if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
@@ -1837,7 +1935,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
     const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorSuffix(a.floor)}${edu}${nw}${ww}${locTag}</label></div>`;
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
   html += '</div>';
   if (assignedForSlot.length > 0) {
@@ -1856,17 +1954,23 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const nId = `n_${dateStr}_${shift}_${p.key}`;
       const wId = `w_${dateStr}_${shift}_${p.key}`;
       const sId = `s_${dateStr}_${shift}_${p.key}`;
+      const tId = `t_${dateStr}_${shift}_${p.key}`;
       const locTag = (currentLocationFilter === '전체' && p.location) ? ` <span class="loc-badge">${p.location}</span>` : '';
       const genderOpts = ['남','여'].map(g => `<option value="${g}" ${g===p.gender?'selected':''}>${g}</option>`).join('');
+      const transports = transportsFor(p.location);
+      const transportSel = transports.length === 0 ? ''
+        : `<select id="${tId}"><option value="">이동수단</option>${transports.map(t => `<option value="${t}">${t}</option>`).join('')}</select>`;
+      const transportArg = transports.length === 0 ? "''" : `document.getElementById('${tId}').value`;
       html += `<div class="unassigned-chip">
         <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${p.name}">
         <span>${nameWithDupSuffix_(p.name, p.pin)}${locTag}</span>
         <select id="${gId}">${genderOpts}</select>
-        <select id="${fId}">${floorOptionsHtml()}</select>
+        <select id="${fId}" onchange="onFloorSelectChange(this)">${floorOptionsHtml(p.location)}</select>
+        ${transportSel}
         <label><input type="checkbox" id="${eId}">교육</label>
         <label><input type="checkbox" id="${nId}">신규</label>
         <label><input type="checkbox" id="${wId}">여임금</label>
-        <button onclick="assignPerson('${dateStr}','${shift}','${p.key}', document.getElementById('${gId}').value, document.getElementById('${fId}').value, document.getElementById('${eId}').checked, document.getElementById('${nId}').checked, document.getElementById('${wId}').checked)">배치</button>
+        <button onclick="assignPerson('${dateStr}','${shift}','${p.key}', document.getElementById('${gId}').value, document.getElementById('${fId}').value, document.getElementById('${eId}').checked, document.getElementById('${nId}').checked, document.getElementById('${wId}').checked, ${transportArg})">배치</button>
       </div>`;
     });
     html += '</div>';
@@ -1949,7 +2053,9 @@ function batchAssign(dateStr, shift) {
     const isEducation = document.getElementById(`e_${dateStr}_${shift}_${key}`).checked;
     const isNew = document.getElementById(`n_${dateStr}_${shift}_${key}`).checked;
     const isWomenWage = document.getElementById(`w_${dateStr}_${shift}_${key}`).checked;
-    list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
+    const tSel = document.getElementById(`t_${dateStr}_${shift}_${key}`);
+    const transport = tSel ? tSel.value : '';
+    list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, transport: transport, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
   });
   adminRun()
     .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
@@ -1957,13 +2063,13 @@ function batchAssign(dateStr, shift) {
     .batchSaveAssignments(list, adminPassword);
 }
 
-function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWomenWage) {
+function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWomenWage, transport) {
   const rec = lastRecords.find(r => r.key === key);
   const name = rec ? rec.name : '';
   adminRun()
     .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
-    .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, adminPassword);
+    .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, transport || '', adminPassword);
 }
 
 function selectAllAssigned(dateStr, shift) {
@@ -1988,6 +2094,8 @@ function batchUnassign(dateStr, shift) {
 
 function setLocationFilter(loc) {
   currentLocationFilter = loc;
+  renderInfoEditFloorButtons();
+  syncInfoEditToolbar();
   renderAdmin(lastRecords, lastAssignments, lastTargets);
 }
 
@@ -2070,13 +2178,16 @@ function renderAdmin(records, assignments, targets) {
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
 
-  // 신청 전체 취소로 Data에서 사라진 근무자라도, 지난 배치 기록(Assign)의 근무지가 현재 필터와
-  // 일치하면 배치판에서 계속 보이도록 allowedKeys에 함께 포함한다.
+  // 배치 기록은 행마다 근무지를 판단한다. Data에 있는 근무자는 현재 근무지 기준으로 거르고,
+  // 신청 전체 취소로 Data에서 사라진 근무자는 배치 당시 Assign에 저장된 근무지 기준으로 거른다.
+  const boardAssignments = (currentLocationFilter === '전체') ? (assignments || []) : (assignments || []).filter(a => {
+    const loc = keyToLocation.hasOwnProperty(a.key) ? keyToLocation[a.key] : a.location;
+    return loc === currentLocationFilter;
+  });
   const allowedKeys = (currentLocationFilter === '전체') ? null : new Set(
-    filteredRecords.map(r => r.key)
-      .concat((assignments || []).filter(a => a.location === currentLocationFilter).map(a => a.key))
+    filteredRecords.map(r => r.key).concat(boardAssignments.map(a => a.key))
   );
-  html += buildAssignBoard(allDates, byDate, assignments || [], targets || [], allowedKeys, keyToLocation, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set);
+  html += buildAssignBoard(allDates, byDate, boardAssignments, targets || [], allowedKeys, keyToLocation, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set);
 
   if (filteredRecords.length > 0) {
     html += buildApplicantTable(filteredRecords, week1Set, '1주차', w1Start, w1End);
