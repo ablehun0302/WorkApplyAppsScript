@@ -30,6 +30,7 @@
       <label>기본 근무 장소</label>
       <div class="sub" style="margin:-2px 0 6px;">평소 가는 곳을 고르세요. 날짜마다 다른 곳에 간다면 아래 달력에서 그 날짜만 바꿀 수 있어요.</div>
       <div id="locationCheckboxes" class="location-checkboxes"></div>
+      <div id="adminLocationNotice" class="sub" style="display:none; margin:6px 0 0; color:#2f6fed;"></div>
       <label>관리자에게 하고 싶은 말 (선택)</label>
       <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
       <textarea id="messageBox" rows="4" placeholder="예: 월화수목금토일 신청합니다.&#10;예:주간_월화수목금/야간_화수목금 신청합니다.&#10;예;월화수목금_신세계푸드/토일_BGF 신청합니다" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
@@ -65,8 +66,18 @@ function getSelectedLocations() {
   const checked = document.querySelector('input[name="workLocation"]:checked');
   return checked ? [checked.value] : [];
 }
+// 기본 근무지는 관리자 지정(H열)이 근무자가 고른 희망 장소(G열)보다 우선한다 — 서버
+// effectiveLocationOf_와 같은 규칙이다. 이 값을 안 보면 관리자가 옮겨둔 근무자에게 날짜별
+// 드롭다운이 실제와 다른 곳을 표시하고, 원하는 근무지를 고를 방법도 없어진다.
+let adminBaseLocation = '';
 function currentBaseLocation() {
-  return getSelectedLocations()[0] || '';
+  return adminBaseLocation || getSelectedLocations()[0] || '';
+}
+function renderAdminLocationNotice() {
+  const el = document.getElementById('adminLocationNotice');
+  if (!adminBaseLocation) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.textContent = '관리자가 ' + adminBaseLocation + '(으)로 지정해 두었습니다. 날짜별 근무지는 이 값을 기준으로 합니다.';
 }
 // 기본 근무장소를 바꾸면 따로 지정하지 않은 날짜(selections[key].location이 빈 값)의
 // 드롭다운도 같이 따라간다. 그 날짜만 다른 곳으로 바꿔둔 것은 그대로 둔다.
@@ -201,8 +212,10 @@ function lookupRecord() {
         isEditMode = true;
         document.getElementById('phone').value = existing.phone || '';
         document.getElementById('phone').disabled = true;
+        adminBaseLocation = existing.adminLocation || '';
         renderGenderRadios(existing.gender);
         renderLocationCheckboxes(existing.locations);
+        renderAdminLocationNotice();
         document.getElementById('messageBox').value = existing.message || '';
         document.getElementById('adConsent').checked = existing.adConsent === 'Y';
         buildDateList(existing.shifts);
@@ -219,8 +232,10 @@ function lookupRecord() {
           document.getElementById('resetIdentityBtn').style.display = 'none';
           return;
         }
+        adminBaseLocation = '';
         renderGenderRadios('');
         renderLocationCheckboxes([]);
+        renderAdminLocationNotice();
         document.getElementById('messageBox').value = '';
         document.getElementById('adConsent').checked = false;
         buildDateList(null);
@@ -298,8 +313,10 @@ function resetIdentity() {
   document.getElementById('name').value = ''; document.getElementById('name').disabled = false;
   document.getElementById('pin').value = ''; document.getElementById('pin').disabled = false;
   document.getElementById('phone').value = ''; document.getElementById('phone').disabled = false;
+  adminBaseLocation = '';
   renderGenderRadios('');
   renderLocationCheckboxes([]);
+  renderAdminLocationNotice();
   document.getElementById('messageBox').value = '';
   document.getElementById('calendarSection').style.display = 'none';
   document.getElementById('applicationDetailsSection').style.display = 'none';

@@ -363,7 +363,9 @@ function lookupRecord(name, pin) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === key) {
         const v = data[i];
-        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
+        // adminLocation은 근무자가 고치는 값이 아니지만, 날짜별 근무지의 기준이 되는 "기본 근무지"가
+        // adminLocation → locations[0] 순이므로 신청 화면이 이 값을 알아야 실효 근무지를 맞게 보여준다.
+        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), adminLocation: v[7] || '', message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
       } else if (data[i][1] === targetName && String(data[i][3]) !== targetPin) {
         duplicateName = true;
       }

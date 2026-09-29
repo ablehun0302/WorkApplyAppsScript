@@ -283,9 +283,25 @@ function effectiveLocation(rec, dateStr) {
   const found = (rec.shifts || []).find(s => s.date === dateStr);
   return (found && found.location) || rec.adminLocation || (rec.locations && rec.locations[0]) || '';
 }
+// (key, 날짜) → 배치 당시 근무지. locationOfDate가 배치 여부를 O(1)로 보기 위한 인덱스로,
+// 화면을 다시 그릴 때마다 renderAdmin이 갱신한다.
+let assignLocByKeyDate = {};
+function rebuildAssignLocationIndex_(assignments) {
+  assignLocByKeyDate = {};
+  (assignments || []).forEach(a => {
+    if (a.location) assignLocByKeyDate[a.key + '|' + a.date] = a.location;
+  });
+}
+// 그 날짜가 어느 근무지 탭에 속하는지. 배치가 확정된 날짜는 배치 당시 근무지(Assign K열)를,
+// 아직 배치 전이면 신청 근무지(Data)를 따른다. 두 기준을 호출부마다 따로 고르면 배치 확정 후
+// 근무자가 근무지를 바꿨을 때 한 사람이 두 탭에 동시에 나타나므로, 판정을 여기 하나로 모은다.
+function locationOfDate(rec, dateStr) {
+  if (!rec) return '';
+  return assignLocByKeyDate[rec.key + '|' + dateStr] || effectiveLocation(rec, dateStr);
+}
 // 현재 선택된 근무지 탭에 이 날짜가 속하는지. '전체' 탭이면 모든 날짜가 속한다.
 function locationMatches(rec, dateStr) {
-  return currentLocationFilter === '전체' || effectiveLocation(rec, dateStr) === currentLocationFilter;
+  return currentLocationFilter === '전체' || locationOfDate(rec, dateStr) === currentLocationFilter;
 }
 // 배치 기록의 근무지. 배치 당시 Assign K열에 박아둔 값이 기준이라, 근무자가 나중에 신청
 // 근무지를 바꿔도 확정된 배치는 그 탭에 남는다. K열이 없던 시절의 옛 기록만 Data로 폴백한다.
@@ -293,7 +309,7 @@ function assignmentLocation(a, recByKey) {
   return a.location || effectiveLocation(recByKey && recByKey[a.key], a.date);
 }
 function workerLocation(key, dateStr) {
-  return effectiveLocation(lastRecords.find(r => r.key === key), dateStr);
+  return locationOfDate(lastRecords.find(r => r.key === key), dateStr);
 }
 let lastRecords = [], lastAssignments = [], lastTargets = [];
 let dupNameSet = new Set(); // 이름이 겹치는 근무자가 있으면 화면에 생년월일을 덧붙여 구분
@@ -566,7 +582,12 @@ function setCellFloor(dateStr, shiftKey, key, floor, transport) {
 // 그 날짜의 근무지만 바꾼다. 배치를 만들지는 않는다(층/이동수단 버튼과 다른 점).
 function setCellLocation(dateStr, key, location) {
   adminRun()
-    .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
+    // 근무지를 바꾸는 사이 근무자가 그 날짜 신청을 취소하면 서버가 false를 돌려준다.
+    // GAS에서 false 반환은 성공이라 실패 핸들러가 불리지 않으므로 여기서 직접 알린다.
+    .withSuccessHandler(function(ok) {
+      if (!ok) alert('그 날짜의 신청이 없어 근무지를 바꾸지 못했습니다. 화면을 새로 불러옵니다.');
+      closeFloorMenu(); saveScrollForRefresh(); loadAdmin();
+    })
     .withFailureHandler(function(err) { alert('근무지 변경 오류: ' + err.message); })
     .setShiftLocation(key, dateStr, location, adminPassword);
 }
@@ -982,13 +1003,29 @@ function saveDateEditChanges() {
   function buildNewShifts(key) {
     const rec = lastRecords.find(r => r.key === key);
     const map = {};
-    (rec ? rec.shifts || [] : []).forEach(s => { map[s.date] = { day: !!s.day, night: !!s.night }; });
+    const wasOn = {};     // 이번 편집 전에 이미 신청돼 있던 날짜
+    const locByDate = {}; // 기존 날짜별 근무지
+    (rec ? rec.shifts || [] : []).forEach(s => {
+      map[s.date] = { day: !!s.day, night: !!s.night };
+      wasOn[s.date] = !!s.day || !!s.night;
+      if (s.location) locByDate[s.date] = s.location;
+    });
     Object.entries(pendingDateChanges[key]).forEach(([dateStr, changes]) => {
       if (!map[dateStr]) map[dateStr] = { day: false, night: false };
       if (changes.day !== undefined) map[dateStr].day = changes.day;
       if (changes.night !== undefined) map[dateStr].night = changes.night;
     });
-    return Object.entries(map).filter(([, v]) => v.day || v.night).map(([date, v]) => ({ date, day: v.day, night: v.night }));
+    return Object.entries(map).filter(([, v]) => v.day || v.night).map(([date, v]) => {
+      const item = { date, day: v.day, night: v.night };
+      if (locByDate[date]) item.location = locByDate[date];
+      // 근무지 탭을 보면서 새로 켠 날짜는 그 탭의 날짜로 만든다. 그러지 않으면 기본 근무지로
+      // 들어가, 방금 추가한 칸이 다시 그리자마자 다른 탭으로 옮겨가 사라진 것처럼 보인다.
+      else if (!wasOn[date] && currentLocationFilter !== '전체'
+               && rec && effectiveLocation(rec, date) !== currentLocationFilter) {
+        item.location = currentLocationFilter;
+      }
+      return item;
+    });
   }
 
   function runNext(idx) {
@@ -1281,7 +1318,9 @@ function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
 function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
   const genderRank = (g) => g === '남' ? 0 : 1;
   const rows = records.map(rec => {
-    const cnt = (rec.shifts||[]).filter(s => weekDatesSet.has(s.date)).length;
+    // 근무지 탭을 보고 있으면 그 탭에 해당하는 날짜만 센다. 이 표는 "이 탭에 오는 날이 하루라도
+    // 있는 사람"을 담으므로, 전체 신청일수를 그대로 쓰면 탭 인원 계획용 숫자가 부풀려진다.
+    const cnt = (rec.shifts||[]).filter(s => weekDatesSet.has(s.date) && locationMatches(rec, s.date)).length;
     const requested = (rec.locations && rec.locations[0]) || '';
     const adminLoc = rec.adminLocation || '';
     const genderRequested = rec.gender || '';
@@ -2304,6 +2343,9 @@ function renderAdmin(records, assignments, targets) {
   (records || []).forEach(rec => { nameCounts[rec.name] = (nameCounts[rec.name] || 0) + 1; });
   dupNameSet = new Set(Object.keys(nameCounts).filter(n => nameCounts[n] > 1));
 
+  // locationMatches/locationOfDate가 이 인덱스를 읽으므로 거르기 전에 먼저 채운다.
+  rebuildAssignLocationIndex_(assignments);
+
   // 근무지가 날짜마다 다를 수 있으므로 "이 사람이 이 탭 소속인가"가 아니라
   // "이 탭에 해당하는 날짜가 하루라도 있는가"로 거른다.
   const filteredRecords = (currentLocationFilter === '전체')
@@ -2337,8 +2379,9 @@ function renderAdmin(records, assignments, targets) {
   (records || []).forEach(rec => {
     recByKey[rec.key] = rec;
     keyToPin[rec.key] = rec.pin || '';
-    keyToWeek1Count[rec.key] = (rec.shifts || []).filter(s => week1Set.has(s.date)).length;
-    keyToWeek2Count[rec.key] = (rec.shifts || []).filter(s => week2Set.has(s.date)).length;
+    // 배치판 칩 정렬("주차별 신청횟수 기준")도 현재 탭 기준이어야 순서가 어긋나지 않는다.
+    keyToWeek1Count[rec.key] = (rec.shifts || []).filter(s => week1Set.has(s.date) && locationMatches(rec, s.date)).length;
+    keyToWeek2Count[rec.key] = (rec.shifts || []).filter(s => week2Set.has(s.date) && locationMatches(rec, s.date)).length;
   });
 
   document.getElementById('adminLocationTabs').innerHTML = buildLocationTabs();
