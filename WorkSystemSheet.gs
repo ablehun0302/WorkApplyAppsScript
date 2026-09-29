@@ -395,15 +395,17 @@ function batchSaveRecords(list, adminPw) {
       let existingAdminLocation = '';
       let existingAdminGender = '';
       let existingAdConsent = '';
+      let existingShifts = [];
       if (row) {
         // 위에서 이미 읽어둔 data 배열에 있는 값이므로 getRange().getValue()로 다시 조회하지 않는다.
         existingAdminLocation = data[row - 1][7] || '';
         existingAdminGender = data[row - 1][10] || '';
         existingAdConsent = data[row - 1][11] || '';
+        try { existingShifts = JSON.parse(data[row - 1][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
       }
       const rowData = [
         key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
-        JSON.stringify(item.shifts || []), JSON.stringify(item.locations || []),
+        JSON.stringify(mergeShiftLocations_(existingShifts, item.shifts || [])), JSON.stringify(item.locations || []),
         existingAdminLocation, '', item.gender || '', existingAdminGender, existingAdConsent
       ];
       if (row) {
@@ -559,6 +561,19 @@ function batchSaveRoster(list, adminPw) {
   return true;
 }
 
+// 관리자 화면들은 날짜별 근무지를 다루지 않고 shifts를 {date, day, night}로만 다시 만들어 덮어쓴다.
+// 그대로 저장하면 근무자가 지정해둔 날짜별 location이 지워지므로, 같은 날짜의 기존 값을 되살려준다.
+function mergeShiftLocations_(oldShifts, newShifts) {
+  const locByDate = {};
+  (oldShifts || []).forEach(function (s) {
+    if (s.location) locByDate[s.date] = s.location;
+  });
+  return (newShifts || []).map(function (s) {
+    if (s.location || !locByDate[s.date]) return s;
+    return Object.assign({}, s, { location: locByDate[s.date] });
+  });
+}
+
 // 관리자가 실제 배치 장소를 별도로 지정/변경 (신청 장소와 다를 수 있음)
 // 관리자가 근로자의 근무 일정(주간/야간)을 직접 수정
 function adminUpdateShifts(key, shifts, adminPw) {
@@ -566,7 +581,9 @@ function adminUpdateShifts(key, shifts, adminPw) {
   const sheet = getDataSheet_();
   const row = findRow_(sheet, 0, key);
   if (row === -1) return false;
-  sheet.getRange(row, 6).setValue(JSON.stringify(shifts));
+  let oldShifts = [];
+  try { oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+  sheet.getRange(row, 6).setValue(JSON.stringify(mergeShiftLocations_(oldShifts, shifts)));
   return true;
 }
 
