@@ -525,6 +525,18 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
       menu.appendChild(btn);
     });
   }
+  // 층/이동수단 버튼은 saveAssignment로 배치를 확정시키지만, 근무지 버튼은 신청 근무지만 바꾼다.
+  const locSep = document.createElement('div');
+  locSep.textContent = '근무지 (이 날짜만)';
+  locSep.style.cssText = 'font-size:11px; color:#888; padding:4px 10px 0; border-top:1px solid #eee; margin-top:2px;';
+  menu.appendChild(locSep);
+  LOCATIONS.forEach(l => {
+    const btn = document.createElement('button');
+    btn.textContent = (l === loc ? '✓ ' : '') + l;
+    btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#f4fbf0; border-radius:6px; cursor:pointer; text-align:left;';
+    btn.onclick = function(e) { e.stopPropagation(); setCellLocation(dateStr, key, l); };
+    menu.appendChild(btn);
+  });
   const clearBtn = document.createElement('button');
   clearBtn.textContent = '지우기';
   clearBtn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fdecea; color:#c0392b; border-radius:6px; cursor:pointer; text-align:left;';
@@ -549,6 +561,14 @@ function setCellFloor(dateStr, shiftKey, key, floor, transport) {
     .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floorVal, isEducation, isNew, isWomenWage, transportVal, adminPassword);
+}
+
+// 그 날짜의 근무지만 바꾼다. 배치를 만들지는 않는다(층/이동수단 버튼과 다른 점).
+function setCellLocation(dateStr, key, location) {
+  adminRun()
+    .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
+    .withFailureHandler(function(err) { alert('근무지 변경 오류: ' + err.message); })
+    .setShiftLocation(key, dateStr, location, adminPassword);
 }
 
 function closeLocationMenu() {
