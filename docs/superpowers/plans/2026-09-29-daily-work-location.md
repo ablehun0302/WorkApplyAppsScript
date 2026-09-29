@@ -358,7 +358,8 @@ GAS 편집기에 임시 함수를 만들어 실행한다(확인 후 삭제).
 ```js
 function tmpTestSetShiftLocation() {
   const key = '여기에 Data 시트 A열의 key를 붙여넣기';
-  Logger.log(setShiftLocation(key, '2026-09-30', 'BGF푸드_진천', ADMIN_PASSWORD));
+  const pw = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD');
+  Logger.log(setShiftLocation(key, '2026-09-30', 'BGF푸드_진천', pw));
 }
 ```
 

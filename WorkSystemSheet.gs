@@ -663,6 +663,52 @@ function setAdminLocation(key, location, adminPw) {
   return true;
 }
 
+// 관리자가 배치판 날짜 칸에서 그 날짜만의 근무지를 지정/해제한다.
+// 기본 근무지와 같은 값을 고르면 예외를 해제(location 삭제)하는 것으로 본다.
+function setShiftLocation(key, date, location, adminPw) {
+  requireAdmin_(adminPw);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let effective = '';
+  try {
+    const sheet = getDataSheet_();
+    const row = findRow_(sheet, 0, key);
+    if (row === -1) return false;
+
+    let shifts = [];
+    try { shifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+    const target = shifts.filter(function (s) { return s.date === date; })[0];
+    // 근무지를 바꾸는 사이 근무자가 그 날짜 신청을 취소했을 수 있다. 없는 날짜는 만들지 않는다.
+    if (!target) return false;
+
+    let locations = [];
+    try { locations = JSON.parse(sheet.getRange(row, 7).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+    const baseLocation = sheet.getRange(row, 8).getValue() || locations[0] || '';
+
+    if (!location || location === baseLocation) delete target.location;
+    else target.location = location;
+
+    sheet.getRange(row, 6).setValue(JSON.stringify(shifts));
+    effective = target.location || baseLocation;
+  } finally {
+    lock.releaseLock();
+  }
+  updateAssignLocation_(key, date, effective);
+  return true;
+}
+
+// 이미 배치된 날짜의 근무지를 관리자가 바꿨으면 Assign 시트 K열도 맞춰준다.
+// 같은 날 주간/야간이 둘 다 배치돼 있으면 두 행 모두 갱신해야 근무지가 어긋나지 않는다.
+function updateAssignLocation_(key, date, location) {
+  const sheet = getAssignSheet_();
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][3] === key && toDateStr_(data[i][1]) === date) {
+      sheet.getRange(i + 1, 11).setValue(location);
+    }
+  }
+}
+
 function deleteRecord(name, pin) {
   const sheet = getDataSheet_();
   const key = makeKey_(name, pin);
