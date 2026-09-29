@@ -2319,12 +2319,29 @@ function renderAdmin(records, assignments, targets) {
   }
 
   if (filteredRecords.length === 0) {
-    html += '<div class="admin-section-title">날짜별 집계</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
+    html += '<div class="admin-section-title">신청자 집계(배치전)</div><div class="empty">이 장소에는 아직 신청 내역이 없습니다.</div>';
   } else {
-    html += '<div class="admin-section-title">날짜별 집계</div>';
+    html += '<div class="admin-section-title">신청자 집계(배치전)</div>';
     html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
     html += buildWeekTable(week1, byDate, '1주차', keyToWeek1Count);
     html += buildWeekTable(week2, byDate, '2주차', keyToWeek2Count);
+  }
+
+  const byDateAssigned = {};
+  boardAssignments.forEach(a => {
+    if (!byDateAssigned[a.date]) byDateAssigned[a.date] = { day: [], night: [] };
+    if (byDateAssigned[a.date][a.shift]) {
+      byDateAssigned[a.date][a.shift].push({ key: a.key, name: a.name, pin: keyToPin[a.key] || '', gender: a.gender || '' });
+    }
+  });
+
+  if (boardAssignments.length === 0) {
+    html += '<div class="admin-section-title">실근무자 집계(배치후)</div><div class="empty">이 장소에는 아직 배치된 근무자가 없습니다.</div>';
+  } else {
+    html += '<div class="admin-section-title">실근무자 집계(배치후)</div>';
+    html += `<div class="period-caption">${pStart} ~ ${pEnd}${currentLocationFilter!=='전체' ? ' · ' + currentLocationFilter : ''}</div>`;
+    html += buildWeekTable(week1, byDateAssigned, '1주차', keyToWeek1Count);
+    html += buildWeekTable(week2, byDateAssigned, '2주차', keyToWeek2Count);
   }
 
   content.innerHTML = html;
