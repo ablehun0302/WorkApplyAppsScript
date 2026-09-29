@@ -27,7 +27,8 @@
     <div class="card" id="applicationDetailsSection">
       <label>성별</label>
       <div id="genderRadios" class="location-checkboxes"></div>
-      <label>근무 장소 (해당되는 곳 한 곳만 선택)</label>
+      <label>기본 근무 장소</label>
+      <div class="sub" style="margin:-2px 0 6px;">평소 가는 곳을 고르세요. 날짜마다 다른 곳에 간다면 아래 달력에서 그 날짜만 바꿀 수 있어요.</div>
       <div id="locationCheckboxes" class="location-checkboxes"></div>
       <label>관리자에게 하고 싶은 말 (선택)</label>
       <div class="sub" style="margin:-2px 0 6px;">근무희망요일을 문자로 한번더 남겨주세요!!</div>
@@ -57,12 +58,37 @@ function renderLocationCheckboxes(selectedLocations) {
   container.innerHTML = LOCATIONS.map(loc => {
     const checked = (selectedLocations || []).indexOf(loc) > -1 ? 'checked' : '';
     const id = 'loc_' + loc.replace(/[^a-zA-Z0-9가-힣]/g, '_');
-    return `<label><input type="radio" name="workLocation" id="${id}" value="${loc}" ${checked}>${loc}</label>`;
+    return `<label><input type="radio" name="workLocation" id="${id}" value="${loc}" ${checked} onchange="onBaseLocationChange()">${loc}</label>`;
   }).join('');
 }
 function getSelectedLocations() {
   const checked = document.querySelector('input[name="workLocation"]:checked');
   return checked ? [checked.value] : [];
+}
+function currentBaseLocation() {
+  return getSelectedLocations()[0] || '';
+}
+// 기본 근무장소를 바꾸면 따로 지정하지 않은 날짜(selections[key].location이 빈 값)의
+// 드롭다운도 같이 따라간다. 그 날짜만 다른 곳으로 바꿔둔 것은 그대로 둔다.
+function onBaseLocationChange() {
+  const base = currentBaseLocation();
+  Object.keys(selections).forEach(key => {
+    if (selections[key].location) return;
+    const sel = document.getElementById('loc-' + key);
+    if (sel) setSelectValue(sel, base);
+  });
+}
+// 근무지 목록이 바뀌어 저장된 값이 LOCATIONS에 없을 수 있다. 그대로 두면 브라우저가 첫 항목을
+// 골라버려 근무지가 조용히 바뀌므로, 없는 값은 옵션을 덧붙여 보존한다.
+function setSelectValue(sel, value) {
+  if (!value) return;
+  if (!Array.from(sel.options).some(o => o.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    sel.appendChild(opt);
+  }
+  sel.value = value;
 }
 
 function renderGenderRadios(selectedGender) {
@@ -94,10 +120,10 @@ function buildDateList(prefill) {
     }
     const key = formatDate(d);
     const dow = DAY_NAMES[d.getDay()];
-    selections[key] = { day: false, night: false };
+    selections[key] = { day: false, night: false, location: '' };
     if (prefill) {
       const found = prefill.find(s => s.date === key);
-      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; }
+      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; selections[key].location = found.location || ''; }
     }
     const row = document.createElement('div');
     row.className = 'date-row';
@@ -107,19 +133,42 @@ function buildDateList(prefill) {
     const nightBtnClass = 'shift-btn' + (selections[key].night?' selected':'') + (isPast?' disabled':'');
     const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
     const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
+    const hasShift = selections[key].day || selections[key].night;
+    const locOptions = LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
       <div class="shift-btns">
         <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
         <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
-      </div>`;
+      </div>
+      <select class="date-loc" id="loc-${key}" ${isPast?'disabled':''} onchange="setDateLocation('${key}', this.value)" style="display:${hasShift?'':'none'};">${locOptions}</select>`;
     container.appendChild(row);
+    setSelectValue(document.getElementById('loc-' + key), selections[key].location || currentBaseLocation());
   });
 }
 
 function toggleShift(key, type) {
   selections[key][type] = !selections[key][type];
   document.getElementById(type+'-'+key).classList.toggle('selected', selections[key][type]);
+  syncDateLocationVisibility(key);
+}
+
+// 주간/야간을 하나라도 고른 날짜에만 근무지 드롭다운을 보여준다.
+// 신청을 모두 해제하면 그 날짜의 근무지 지정도 함께 지운다.
+function syncDateLocationVisibility(key) {
+  const sel = document.getElementById('loc-' + key);
+  if (!sel) return;
+  const on = selections[key].day || selections[key].night;
+  sel.style.display = on ? '' : 'none';
+  if (!on) {
+    selections[key].location = '';
+    setSelectValue(sel, currentBaseLocation());
+  }
+}
+
+// 기본 근무장소와 같은 값을 고르는 것은 "그 날짜만 다르게"를 해제하는 뜻으로 본다.
+function setDateLocation(key, value) {
+  selections[key].location = (value === currentBaseLocation()) ? '' : value;
 }
 
 function lookupRecord() {
@@ -190,7 +239,13 @@ function submitApplication() {
   const phone = document.getElementById('phone').value.trim();
   const resultMsg = document.getElementById('resultMsg');
   resultMsg.innerHTML = '';
-  const chosen = Object.entries(selections).filter(([k,v]) => v.day || v.night).map(([k,v]) => ({date:k, day:v.day, night:v.night}));
+  const base = currentBaseLocation();
+  const chosen = Object.entries(selections).filter(([k,v]) => v.day || v.night).map(([k,v]) => {
+    const item = { date: k, day: v.day, night: v.night };
+    // 기본 근무장소와 같으면 저장하지 않는다. 그래야 나중에 기본 근무장소가 바뀔 때 따라간다.
+    if (v.location && v.location !== base) item.location = v.location;
+    return item;
+  });
   if (chosen.length === 0) {
     resultMsg.innerHTML = '<div class="msg err">최소 하나의 날짜/시간대를 선택해주세요.</div>';
     return;
