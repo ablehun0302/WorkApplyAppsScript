@@ -64,8 +64,12 @@
   .date-edit-toolbar button.on, #dateEditToggleBtn.on, #infoEditToggleBtn.on { background: #2f6fed; color: white; border-color: #2f6fed; }
   .date-edit-toolbar #dateEditStatus { font-size: 12px; color: #555; }
   .date-cell { cursor: default; }
+  .date-cell-other { color: #ddd; cursor: not-allowed; }
   body.date-edit-mode .date-cell { cursor: pointer; }
   body.date-edit-mode .date-cell:hover { outline: 2px solid #2f6fed; outline-offset: -2px; }
+  /* 다른 근무지 날짜(·)는 클릭을 막아두었으므로 수정 모드에서도 눌릴 것처럼 보이면 안 된다 */
+  body.date-edit-mode .date-cell-other { cursor: not-allowed; }
+  body.date-edit-mode .date-cell-other:hover { outline: none; }
   td.date-pending-on { background: #d7f5da !important; }
   td.date-pending-off { background: #fddede !important; text-decoration: line-through; }
   td.rowhead.rowhead-pending { background: #fff3cd !important; }

@@ -615,13 +615,16 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
   const weekSet = new Set(weekDatesStr);
   const headerLabels = weekDates.map((d, i) => `${d.getMonth()+1}/${d.getDate()}${WEEKDAY_LABELS[i]}`);
 
-  const relevant = records.filter(rec => (rec.shifts || []).some(s => weekSet.has(s.date) && s[shiftKey]));
+  const relevant = records.filter(rec => (rec.shifts || []).some(s => weekSet.has(s.date) && s[shiftKey] && locationMatches(rec, s.date)));
 
+  // shifts를 여기서 미리 걸러두면 날짜 칸 렌더와 합계 계산이 함께 날짜별로 맞아떨어진다.
+  // allShifts는 "다른 근무지라 빠진 날짜"와 "아예 신청이 없는 날짜"를 구분하는 데 쓴다.
   const withMeta = relevant.map(rec => ({
     key: rec.key, name: rec.name, pin: rec.pin || '',
     gender: rec.adminGender || rec.gender || '',
     sortOrder: rec.sortOrder || 0,
-    shifts: rec.shifts || []
+    shifts: (rec.shifts || []).filter(s => locationMatches(rec, s.date)),
+    allShifts: rec.shifts || []
   }));
 
   const male = withMeta.filter(r => r.gender === '남').sort((a,b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name,'ko'));
@@ -665,6 +668,13 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       const found = r.shifts.find(s => s.date === dateStr && s[shiftKey]);
       const cellId = 'dcell_' + shiftKey + '_' + dateStr + '_' + r.key;
       if (!found) {
+        // 다른 근무지로 신청한 날짜는 클릭을 막는다. 열어두면 신청날짜 수정 모드에서 빈 칸처럼
+        // 보이는 칸을 눌렀을 때 실제로는 신청이 해제된다(toggleDateSelection이 원본을 보므로).
+        const otherLocation = r.allShifts.find(s => s.date === dateStr && s[shiftKey]);
+        if (otherLocation) {
+          rowHtml += `<td id="${cellId}" class="date-cell date-cell-other" title="다른 근무지로 신청한 날짜">·</td>`;
+          return;
+        }
         rowHtml += `<td id="${cellId}" class="date-cell" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',false)">-</td>`;
         return;
       }
