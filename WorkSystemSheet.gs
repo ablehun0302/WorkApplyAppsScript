@@ -363,7 +363,9 @@ function lookupRecord(name, pin) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === key) {
         const v = data[i];
-        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
+        // adminLocation은 근무자가 고치는 값이 아니지만, 날짜별 근무지의 기준이 되는 "기본 근무지"가
+        // adminLocation → locations[0] 순이므로 신청 화면이 이 값을 알아야 실효 근무지를 맞게 보여준다.
+        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), adminLocation: v[7] || '', message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
       } else if (data[i][1] === targetName && String(data[i][3]) !== targetPin) {
         duplicateName = true;
       }
@@ -395,15 +397,17 @@ function batchSaveRecords(list, adminPw) {
       let existingAdminLocation = '';
       let existingAdminGender = '';
       let existingAdConsent = '';
+      let existingShifts = [];
       if (row) {
         // 위에서 이미 읽어둔 data 배열에 있는 값이므로 getRange().getValue()로 다시 조회하지 않는다.
         existingAdminLocation = data[row - 1][7] || '';
         existingAdminGender = data[row - 1][10] || '';
         existingAdConsent = data[row - 1][11] || '';
+        try { existingShifts = JSON.parse(data[row - 1][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
       }
       const rowData = [
         key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
-        JSON.stringify(item.shifts || []), JSON.stringify(item.locations || []),
+        JSON.stringify(mergeShiftLocations_(existingShifts, item.shifts || [])), JSON.stringify(item.locations || []),
         existingAdminLocation, '', item.gender || '', existingAdminGender, existingAdConsent
       ];
       if (row) {
@@ -559,6 +563,19 @@ function batchSaveRoster(list, adminPw) {
   return true;
 }
 
+// 관리자 화면들은 날짜별 근무지를 다루지 않고 shifts를 {date, day, night}로만 다시 만들어 덮어쓴다.
+// 그대로 저장하면 근무자가 지정해둔 날짜별 location이 지워지므로, 같은 날짜의 기존 값을 되살려준다.
+function mergeShiftLocations_(oldShifts, newShifts) {
+  const locByDate = {};
+  (oldShifts || []).forEach(function (s) {
+    if (s.location) locByDate[s.date] = s.location;
+  });
+  return (newShifts || []).map(function (s) {
+    if (s.location || !locByDate[s.date]) return s;
+    return Object.assign({}, s, { location: locByDate[s.date] });
+  });
+}
+
 // 관리자가 실제 배치 장소를 별도로 지정/변경 (신청 장소와 다를 수 있음)
 // 관리자가 근로자의 근무 일정(주간/야간)을 직접 수정
 function adminUpdateShifts(key, shifts, adminPw) {
@@ -566,7 +583,9 @@ function adminUpdateShifts(key, shifts, adminPw) {
   const sheet = getDataSheet_();
   const row = findRow_(sheet, 0, key);
   if (row === -1) return false;
-  sheet.getRange(row, 6).setValue(JSON.stringify(shifts));
+  let oldShifts = [];
+  try { oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+  sheet.getRange(row, 6).setValue(JSON.stringify(mergeShiftLocations_(oldShifts, shifts)));
   return true;
 }
 
@@ -644,6 +663,52 @@ function setAdminLocation(key, location, adminPw) {
   if (row === -1) return false;
   sheet.getRange(row, 8).setValue(location || '');
   return true;
+}
+
+// 관리자가 배치판 날짜 칸에서 그 날짜만의 근무지를 지정/해제한다.
+// 기본 근무지와 같은 값을 고르면 예외를 해제(location 삭제)하는 것으로 본다.
+function setShiftLocation(key, date, location, adminPw) {
+  requireAdmin_(adminPw);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let effective = '';
+  try {
+    const sheet = getDataSheet_();
+    const row = findRow_(sheet, 0, key);
+    if (row === -1) return false;
+
+    let shifts = [];
+    try { shifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+    const target = shifts.filter(function (s) { return s.date === date; })[0];
+    // 근무지를 바꾸는 사이 근무자가 그 날짜 신청을 취소했을 수 있다. 없는 날짜는 만들지 않는다.
+    if (!target) return false;
+
+    let locations = [];
+    try { locations = JSON.parse(sheet.getRange(row, 7).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+    const baseLocation = sheet.getRange(row, 8).getValue() || locations[0] || '';
+
+    if (!location || location === baseLocation) delete target.location;
+    else target.location = location;
+
+    sheet.getRange(row, 6).setValue(JSON.stringify(shifts));
+    effective = target.location || baseLocation;
+  } finally {
+    lock.releaseLock();
+  }
+  updateAssignLocation_(key, date, effective);
+  return true;
+}
+
+// 이미 배치된 날짜의 근무지를 관리자가 바꿨으면 Assign 시트 K열도 맞춰준다.
+// 같은 날 주간/야간이 둘 다 배치돼 있으면 두 행 모두 갱신해야 근무지가 어긋나지 않는다.
+function updateAssignLocation_(key, date, location) {
+  const sheet = getAssignSheet_();
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][3] === key && toDateStr_(data[i][1]) === date) {
+      sheet.getRange(i + 1, 11).setValue(location);
+    }
+  }
 }
 
 function deleteRecord(name, pin) {
@@ -725,17 +790,31 @@ function rebuildLocationSheets_() {
 }
 
 // ---- 배치 관련 ----
-// Data 시트 기준 근로자별 신청 근무지(adminLocation 우선, 없으면 첫 신청 근무지)를 일괄 조회
-function getKeyToLocationMap_() {
+// 그 날짜에 실제로 적용되는 근무지. shifts에 location이 지정된 날은 그 값이 우선하고,
+// 없으면 기본 근무지(관리자 지정 → 근무자가 고른 첫 신청 장소)로 떨어진다.
+function effectiveLocationOf_(shifts, adminLocation, locations, dateStr) {
+  const found = (shifts || []).filter(function (s) { return s.date === dateStr; })[0];
+  return (found && found.location) || adminLocation || (locations && locations[0]) || '';
+}
+
+// Data 시트를 한 번만 읽어두고 (key, 날짜) → 실효 근무지를 돌려주는 함수를 만든다.
+// 배치 건마다 시트를 다시 읽지 않기 위해 조회 함수 형태로 반환한다.
+function makeLocationLookup_() {
   const sheet = getDataSheet_();
   const data = sheet.getDataRange().getValues();
-  const map = {};
+  const byKey = {};
   for (let i = 1; i < data.length; i++) {
+    let shifts = [];
     let locations = [];
+    try { shifts = JSON.parse(data[i][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
     try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
-    map[data[i][0]] = data[i][7] || locations[0] || '';
+    byKey[data[i][0]] = { shifts: shifts, adminLocation: data[i][7] || '', locations: locations };
   }
-  return map;
+  return function (key, dateStr) {
+    const rec = byKey[key];
+    if (!rec) return '';
+    return effectiveLocationOf_(rec.shifts, rec.adminLocation, rec.locations, dateStr);
+  };
 }
 
 function getAssignments(adminPw) {
@@ -767,7 +846,7 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     const sheet = getAssignSheet_();
     const assignKey = makeAssignKey_(date, shift, key);
     const row = findRow_(sheet, 0, assignKey);
-    const location = getKeyToLocationMap_()[key] || '';
+    const location = makeLocationLookup_()(key, date) || '';
     const assignGender = isWomenWage ? '여' : gender;
     const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location, transport || ''];
     if (row === -1) sheet.appendRow(rowData);
@@ -789,12 +868,12 @@ function batchSaveAssignments(list, adminPw) {
     const data = sheet.getDataRange().getValues();
     const keyToRow = {};
     for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
-    const keyToLocation = getKeyToLocationMap_();
+    const locationAt = makeLocationLookup_();
 
     list.forEach(item => {
       const assignKey = makeAssignKey_(item.date, item.shift, item.key);
       const assignGender = item.isWomenWage ? '여' : item.gender;
-      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || '', item.transport || ''];
+      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, locationAt(item.key, item.date) || '', item.transport || ''];
       const row = keyToRow[assignKey];
       if (!row) {
         sheet.appendRow(rowData);

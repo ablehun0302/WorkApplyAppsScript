@@ -276,9 +276,40 @@ function onFloorSelectChange(sel) {
   sel.appendChild(opt);
   sel.value = text;
 }
-function workerLocation(key) {
-  const rec = lastRecords.find(r => r.key === key);
-  return rec ? (rec.adminLocation || (rec.locations && rec.locations[0]) || '') : '';
+// 그 날짜에 실제로 적용되는 근무지. shifts에 location이 지정된 날은 그 값이 우선하고,
+// 없으면 기본 근무지(관리자 지정 → 근무자가 고른 첫 신청 장소)로 떨어진다.
+function effectiveLocation(rec, dateStr) {
+  if (!rec) return '';
+  const found = (rec.shifts || []).find(s => s.date === dateStr);
+  return (found && found.location) || rec.adminLocation || (rec.locations && rec.locations[0]) || '';
+}
+// (key, 날짜) → 배치 당시 근무지. locationOfDate가 배치 여부를 O(1)로 보기 위한 인덱스로,
+// 화면을 다시 그릴 때마다 renderAdmin이 갱신한다.
+let assignLocByKeyDate = {};
+function rebuildAssignLocationIndex_(assignments) {
+  assignLocByKeyDate = {};
+  (assignments || []).forEach(a => {
+    if (a.location) assignLocByKeyDate[a.key + '|' + a.date] = a.location;
+  });
+}
+// 그 날짜가 어느 근무지 탭에 속하는지. 배치가 확정된 날짜는 배치 당시 근무지(Assign K열)를,
+// 아직 배치 전이면 신청 근무지(Data)를 따른다. 두 기준을 호출부마다 따로 고르면 배치 확정 후
+// 근무자가 근무지를 바꿨을 때 한 사람이 두 탭에 동시에 나타나므로, 판정을 여기 하나로 모은다.
+function locationOfDate(rec, dateStr) {
+  if (!rec) return '';
+  return assignLocByKeyDate[rec.key + '|' + dateStr] || effectiveLocation(rec, dateStr);
+}
+// 현재 선택된 근무지 탭에 이 날짜가 속하는지. '전체' 탭이면 모든 날짜가 속한다.
+function locationMatches(rec, dateStr) {
+  return currentLocationFilter === '전체' || locationOfDate(rec, dateStr) === currentLocationFilter;
+}
+// 배치 기록의 근무지. 배치 당시 Assign K열에 박아둔 값이 기준이라, 근무자가 나중에 신청
+// 근무지를 바꿔도 확정된 배치는 그 탭에 남는다. K열이 없던 시절의 옛 기록만 Data로 폴백한다.
+function assignmentLocation(a, recByKey) {
+  return a.location || effectiveLocation(recByKey && recByKey[a.key], a.date);
+}
+function workerLocation(key, dateStr) {
+  return locationOfDate(lastRecords.find(r => r.key === key), dateStr);
 }
 let lastRecords = [], lastAssignments = [], lastTargets = [];
 let dupNameSet = new Set(); // 이름이 겹치는 근무자가 있으면 화면에 생년월일을 덧붙여 구분
@@ -484,7 +515,7 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
   if (top + 260 > window.innerHeight) top = Math.max(4, rect.top - 264);
   menu.style.top = top + 'px';
   menu.style.left = left + 'px';
-  const loc = workerLocation(key);
+  const loc = workerLocation(key, dateStr);
   floorsFor(loc).forEach(f => {
     const btn = document.createElement('button');
     btn.textContent = f;
@@ -510,6 +541,18 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
       menu.appendChild(btn);
     });
   }
+  // 층/이동수단 버튼은 saveAssignment로 배치를 확정시키지만, 근무지 버튼은 신청 근무지만 바꾼다.
+  const locSep = document.createElement('div');
+  locSep.textContent = '근무지 (이 날짜만)';
+  locSep.style.cssText = 'font-size:11px; color:#888; padding:4px 10px 0; border-top:1px solid #eee; margin-top:2px;';
+  menu.appendChild(locSep);
+  LOCATIONS.forEach(l => {
+    const btn = document.createElement('button');
+    btn.textContent = (l === loc ? '✓ ' : '') + l;
+    btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#f4fbf0; border-radius:6px; cursor:pointer; text-align:left;';
+    btn.onclick = function(e) { e.stopPropagation(); setCellLocation(dateStr, key, l); };
+    menu.appendChild(btn);
+  });
   const clearBtn = document.createElement('button');
   clearBtn.textContent = '지우기';
   clearBtn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fdecea; color:#c0392b; border-radius:6px; cursor:pointer; text-align:left;';
@@ -534,6 +577,19 @@ function setCellFloor(dateStr, shiftKey, key, floor, transport) {
     .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floorVal, isEducation, isNew, isWomenWage, transportVal, adminPassword);
+}
+
+// 그 날짜의 근무지만 바꾼다. 배치를 만들지는 않는다(층/이동수단 버튼과 다른 점).
+function setCellLocation(dateStr, key, location) {
+  adminRun()
+    // 근무지를 바꾸는 사이 근무자가 그 날짜 신청을 취소하면 서버가 false를 돌려준다.
+    // GAS에서 false 반환은 성공이라 실패 핸들러가 불리지 않으므로 여기서 직접 알린다.
+    .withSuccessHandler(function(ok) {
+      if (!ok) alert('그 날짜의 신청이 없어 근무지를 바꾸지 못했습니다. 화면을 새로 불러옵니다.');
+      closeFloorMenu(); saveScrollForRefresh(); loadAdmin();
+    })
+    .withFailureHandler(function(err) { alert('근무지 변경 오류: ' + err.message); })
+    .setShiftLocation(key, dateStr, location, adminPassword);
 }
 
 function closeLocationMenu() {
@@ -600,13 +656,16 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
   const weekSet = new Set(weekDatesStr);
   const headerLabels = weekDates.map((d, i) => `${d.getMonth()+1}/${d.getDate()}${WEEKDAY_LABELS[i]}`);
 
-  const relevant = records.filter(rec => (rec.shifts || []).some(s => weekSet.has(s.date) && s[shiftKey]));
+  const relevant = records.filter(rec => (rec.shifts || []).some(s => weekSet.has(s.date) && s[shiftKey] && locationMatches(rec, s.date)));
 
+  // shifts를 여기서 미리 걸러두면 날짜 칸 렌더와 합계 계산이 함께 날짜별로 맞아떨어진다.
+  // allShifts는 "다른 근무지라 빠진 날짜"와 "아예 신청이 없는 날짜"를 구분하는 데 쓴다.
   const withMeta = relevant.map(rec => ({
     key: rec.key, name: rec.name, pin: rec.pin || '',
     gender: rec.adminGender || rec.gender || '',
     sortOrder: rec.sortOrder || 0,
-    shifts: rec.shifts || []
+    shifts: (rec.shifts || []).filter(s => locationMatches(rec, s.date)),
+    allShifts: rec.shifts || []
   }));
 
   const male = withMeta.filter(r => r.gender === '남').sort((a,b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name,'ko'));
@@ -650,6 +709,13 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       const found = r.shifts.find(s => s.date === dateStr && s[shiftKey]);
       const cellId = 'dcell_' + shiftKey + '_' + dateStr + '_' + r.key;
       if (!found) {
+        // 다른 근무지로 신청한 날짜는 클릭을 막는다. 열어두면 신청날짜 수정 모드에서 빈 칸처럼
+        // 보이는 칸을 눌렀을 때 실제로는 신청이 해제된다(toggleDateSelection이 원본을 보므로).
+        const otherLocation = r.allShifts.find(s => s.date === dateStr && s[shiftKey]);
+        if (otherLocation) {
+          rowHtml += `<td id="${cellId}" class="date-cell date-cell-other" title="다른 근무지로 신청한 날짜">·</td>`;
+          return;
+        }
         rowHtml += `<td id="${cellId}" class="date-cell" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',false)">-</td>`;
         return;
       }
@@ -937,13 +1003,29 @@ function saveDateEditChanges() {
   function buildNewShifts(key) {
     const rec = lastRecords.find(r => r.key === key);
     const map = {};
-    (rec ? rec.shifts || [] : []).forEach(s => { map[s.date] = { day: !!s.day, night: !!s.night }; });
+    const wasOn = {};     // 이번 편집 전에 이미 신청돼 있던 날짜
+    const locByDate = {}; // 기존 날짜별 근무지
+    (rec ? rec.shifts || [] : []).forEach(s => {
+      map[s.date] = { day: !!s.day, night: !!s.night };
+      wasOn[s.date] = !!s.day || !!s.night;
+      if (s.location) locByDate[s.date] = s.location;
+    });
     Object.entries(pendingDateChanges[key]).forEach(([dateStr, changes]) => {
       if (!map[dateStr]) map[dateStr] = { day: false, night: false };
       if (changes.day !== undefined) map[dateStr].day = changes.day;
       if (changes.night !== undefined) map[dateStr].night = changes.night;
     });
-    return Object.entries(map).filter(([, v]) => v.day || v.night).map(([date, v]) => ({ date, day: v.day, night: v.night }));
+    return Object.entries(map).filter(([, v]) => v.day || v.night).map(([date, v]) => {
+      const item = { date, day: v.day, night: v.night };
+      if (locByDate[date]) item.location = locByDate[date];
+      // 근무지 탭을 보면서 새로 켠 날짜는 그 탭의 날짜로 만든다. 그러지 않으면 기본 근무지로
+      // 들어가, 방금 추가한 칸이 다시 그리자마자 다른 탭으로 옮겨가 사라진 것처럼 보인다.
+      else if (!wasOn[date] && currentLocationFilter !== '전체'
+               && rec && effectiveLocation(rec, date) !== currentLocationFilter) {
+        item.location = currentLocationFilter;
+      }
+      return item;
+    });
   }
 
   function runNext(idx) {
@@ -1236,7 +1318,9 @@ function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
 function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
   const genderRank = (g) => g === '남' ? 0 : 1;
   const rows = records.map(rec => {
-    const cnt = (rec.shifts||[]).filter(s => weekDatesSet.has(s.date)).length;
+    // 근무지 탭을 보고 있으면 그 탭에 해당하는 날짜만 센다. 이 표는 "이 탭에 오는 날이 하루라도
+    // 있는 사람"을 담으므로, 전체 신청일수를 그대로 쓰면 탭 인원 계획용 숫자가 부풀려진다.
+    const cnt = (rec.shifts||[]).filter(s => weekDatesSet.has(s.date) && locationMatches(rec, s.date)).length;
     const requested = (rec.locations && rec.locations[0]) || '';
     const adminLoc = rec.adminLocation || '';
     const genderRequested = rec.gender || '';
@@ -2013,7 +2097,7 @@ function floorOptionsHtml(loc) {
   return floorsFor(loc).map(f => `<option value="${f}">${f}</option>`).join('');
 }
 
-function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowedKeys, keyToLocation, keyToPin, keyToTotalCount) {
+function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowedKeys, recByKey, keyToPin, keyToTotalCount) {
   const shiftLabel = shift === 'day' ? '주간' : '야간';
   const shiftClass = shift === 'day' ? 'day' : 'night';
   const assignedForSlot = assignments.filter(a => a.date === dateStr && a.shift === shift && (!allowedKeys || allowedKeys.has(a.key)));
@@ -2022,7 +2106,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   const genderRank = (g) => g === '남' ? 0 : 1;
   const unassigned = applicants.filter(p => !assignedKeys.has(p.key))
     .sort((a,b) => (genderRank(a.gender) - genderRank(b.gender)) || a.name.localeCompare(b.name, 'ko'));
-  const locOf = (a) => (keyToLocation && keyToLocation[a.key]) || a.location;
+  const locOf = (a) => assignmentLocation(a, recByKey);
   const byFloorThenCount = (a,b) => (floorRank(a.floor, locOf(a)) - floorRank(b.floor, locOf(b))) || (cnt(b.key) - cnt(a.key));
   const maleList = assignedForSlot.filter(a => a.gender === '남').sort(byFloorThenCount);
   const femaleList = assignedForSlot.filter(a => a.gender === '여').sort(byFloorThenCount);
@@ -2047,7 +2131,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
     const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-    const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
+    const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
     const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
     html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
@@ -2057,7 +2141,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
     const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-    const locTag = (currentLocationFilter === '전체' && keyToLocation && keyToLocation[a.key]) ? ` <span class="loc-badge">${keyToLocation[a.key]}</span>` : '';
+    const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
     const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
     html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
@@ -2117,7 +2201,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   return html;
 }
 
-function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, keyToLocation, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set) {
+function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, recByKey, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set) {
   let html = '<div class="admin-section-title">날짜별 배치판</div>';
   const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
@@ -2137,8 +2221,8 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, k
     const titleBadge = currentLocationFilter !== '전체' ? ` <span class="loc-badge">${viewLabel}</span>` : '';
     html += `<div class="assign-date-title" onclick="this.closest('.assign-date-card').classList.toggle('collapsed')"><span>${shortDate(dateStr)}${titleBadge}</span><span class="assign-date-toggle">▼</span></div>`;
     html += `<div class="assign-date-body">`;
-    html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, keyToLocation, keyToPin, keyToTotalCount);
-    html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, keyToLocation, keyToPin, keyToTotalCount);
+    html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
+    html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
     html += `</div>`;
     html += `</div>`;
   });
@@ -2259,18 +2343,21 @@ function renderAdmin(records, assignments, targets) {
   (records || []).forEach(rec => { nameCounts[rec.name] = (nameCounts[rec.name] || 0) + 1; });
   dupNameSet = new Set(Object.keys(nameCounts).filter(n => nameCounts[n] > 1));
 
+  // locationMatches/locationOfDate가 이 인덱스를 읽으므로 거르기 전에 먼저 채운다.
+  rebuildAssignLocationIndex_(assignments);
+
+  // 근무지가 날짜마다 다를 수 있으므로 "이 사람이 이 탭 소속인가"가 아니라
+  // "이 탭에 해당하는 날짜가 하루라도 있는가"로 거른다.
   const filteredRecords = (currentLocationFilter === '전체')
     ? (records || [])
-    : (records || []).filter(rec => {
-        const effective = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
-        return effective === currentLocationFilter;
-      });
+    : (records || []).filter(rec => (rec.shifts || []).some(s => locationMatches(rec, s.date)));
 
   const byDate = {};
   filteredRecords.forEach(rec => {
-    const loc = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
     const gnd = rec.adminGender || rec.gender || '';
     (rec.shifts||[]).forEach(s => {
+      if (!locationMatches(rec, s.date)) return;
+      const loc = effectiveLocation(rec, s.date);
       if (!byDate[s.date]) byDate[s.date] = { day: [], night: [] };
       if (s.day) byDate[s.date].day.push({ key: rec.key, name: rec.name, pin: rec.pin || '', location: loc, gender: gnd });
       if (s.night) byDate[s.date].night.push({ key: rec.key, name: rec.name, pin: rec.pin || '', location: loc, gender: gnd });
@@ -2285,15 +2372,16 @@ function renderAdmin(records, assignments, targets) {
   const w1Start = shortDate(formatDate(week1[0])), w1End = shortDate(formatDate(week1[6]));
   const w2Start = shortDate(formatDate(week2[0])), w2End = shortDate(formatDate(week2[6]));
 
-  const keyToLocation = {};
+  const recByKey = {};
   const keyToPin = {};
   const keyToWeek1Count = {};
   const keyToWeek2Count = {};
   (records || []).forEach(rec => {
-    keyToLocation[rec.key] = rec.adminLocation || (rec.locations && rec.locations[0]) || '';
+    recByKey[rec.key] = rec;
     keyToPin[rec.key] = rec.pin || '';
-    keyToWeek1Count[rec.key] = (rec.shifts || []).filter(s => week1Set.has(s.date)).length;
-    keyToWeek2Count[rec.key] = (rec.shifts || []).filter(s => week2Set.has(s.date)).length;
+    // 배치판 칩 정렬("주차별 신청횟수 기준")도 현재 탭 기준이어야 순서가 어긋나지 않는다.
+    keyToWeek1Count[rec.key] = (rec.shifts || []).filter(s => week1Set.has(s.date) && locationMatches(rec, s.date)).length;
+    keyToWeek2Count[rec.key] = (rec.shifts || []).filter(s => week2Set.has(s.date) && locationMatches(rec, s.date)).length;
   });
 
   document.getElementById('adminLocationTabs').innerHTML = buildLocationTabs();
@@ -2302,16 +2390,14 @@ function renderAdmin(records, assignments, targets) {
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
 
-  // 배치 기록은 행마다 근무지를 판단한다. Data에 있는 근무자는 현재 근무지 기준으로 거르고,
-  // 신청 전체 취소로 Data에서 사라진 근무자는 배치 당시 Assign에 저장된 근무지 기준으로 거른다.
-  const boardAssignments = (currentLocationFilter === '전체') ? (assignments || []) : (assignments || []).filter(a => {
-    const loc = keyToLocation.hasOwnProperty(a.key) ? keyToLocation[a.key] : a.location;
-    return loc === currentLocationFilter;
-  });
+  // 배치 기록은 배치 당시 Assign K열에 저장된 근무지로 거른다. 근무자가 나중에 신청 근무지를
+  // 바꿔도 확정된 배치가 다른 탭으로 옮겨가지 않게 하기 위해서다.
+  const boardAssignments = (currentLocationFilter === '전체') ? (assignments || [])
+    : (assignments || []).filter(a => assignmentLocation(a, recByKey) === currentLocationFilter);
   const allowedKeys = (currentLocationFilter === '전체') ? null : new Set(
     filteredRecords.map(r => r.key).concat(boardAssignments.map(a => a.key))
   );
-  html += buildAssignBoard(allDates, byDate, boardAssignments, targets || [], allowedKeys, keyToLocation, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set);
+  html += buildAssignBoard(allDates, byDate, boardAssignments, targets || [], allowedKeys, recByKey, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set);
 
   if (filteredRecords.length > 0) {
     html += buildApplicantTable(filteredRecords, week1Set, '1주차', w1Start, w1End);
