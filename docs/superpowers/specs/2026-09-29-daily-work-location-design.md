@@ -75,7 +75,7 @@ K열 폴백을 빼면 안 된다. K열은 나중에 추가된 컬럼이라 그 �
 
 | 위치 | 변경 |
 |---|---|
-| `getKeyToLocationMap_():729` | `getLocationAt_(key, date)`로 교체. 날짜별 값을 우선 적용 |
+| `getKeyToLocationMap_():729` | `effectiveLocationOf_` + `makeLocationLookup_()`으로 교체. 날짜별 값을 우선 적용 |
 | `saveAssignment():770` | `Assign` K열에 넣을 값을 그 날짜의 실효 근무지로 |
 | `batchSaveAssignments()` | 위와 동일 |
 | `saveRecord():430` | `shifts` 항목의 `location`을 그대로 보존. 과거 날짜 병합 로직(`453-455`)은 유지 |

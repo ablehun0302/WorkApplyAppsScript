@@ -725,17 +725,31 @@ function rebuildLocationSheets_() {
 }
 
 // ---- 배치 관련 ----
-// Data 시트 기준 근로자별 신청 근무지(adminLocation 우선, 없으면 첫 신청 근무지)를 일괄 조회
-function getKeyToLocationMap_() {
+// 그 날짜에 실제로 적용되는 근무지. shifts에 location이 지정된 날은 그 값이 우선하고,
+// 없으면 기본 근무지(관리자 지정 → 근무자가 고른 첫 신청 장소)로 떨어진다.
+function effectiveLocationOf_(shifts, adminLocation, locations, dateStr) {
+  const found = (shifts || []).filter(function (s) { return s.date === dateStr; })[0];
+  return (found && found.location) || adminLocation || (locations && locations[0]) || '';
+}
+
+// Data 시트를 한 번만 읽어두고 (key, 날짜) → 실효 근무지를 돌려주는 함수를 만든다.
+// 배치 건마다 시트를 다시 읽지 않기 위해 조회 함수 형태로 반환한다.
+function makeLocationLookup_() {
   const sheet = getDataSheet_();
   const data = sheet.getDataRange().getValues();
-  const map = {};
+  const byKey = {};
   for (let i = 1; i < data.length; i++) {
+    let shifts = [];
     let locations = [];
+    try { shifts = JSON.parse(data[i][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
     try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
-    map[data[i][0]] = data[i][7] || locations[0] || '';
+    byKey[data[i][0]] = { shifts: shifts, adminLocation: data[i][7] || '', locations: locations };
   }
-  return map;
+  return function (key, dateStr) {
+    const rec = byKey[key];
+    if (!rec) return '';
+    return effectiveLocationOf_(rec.shifts, rec.adminLocation, rec.locations, dateStr);
+  };
 }
 
 function getAssignments(adminPw) {
@@ -767,7 +781,7 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     const sheet = getAssignSheet_();
     const assignKey = makeAssignKey_(date, shift, key);
     const row = findRow_(sheet, 0, assignKey);
-    const location = getKeyToLocationMap_()[key] || '';
+    const location = makeLocationLookup_()(key, date) || '';
     const assignGender = isWomenWage ? '여' : gender;
     const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location, transport || ''];
     if (row === -1) sheet.appendRow(rowData);
@@ -789,12 +803,12 @@ function batchSaveAssignments(list, adminPw) {
     const data = sheet.getDataRange().getValues();
     const keyToRow = {};
     for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
-    const keyToLocation = getKeyToLocationMap_();
+    const locationAt = makeLocationLookup_();
 
     list.forEach(item => {
       const assignKey = makeAssignKey_(item.date, item.shift, item.key);
       const assignGender = item.isWomenWage ? '여' : item.gender;
-      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, keyToLocation[item.key] || '', item.transport || ''];
+      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, locationAt(item.key, item.date) || '', item.transport || ''];
       const row = keyToRow[assignKey];
       if (!row) {
         sheet.appendRow(rowData);
