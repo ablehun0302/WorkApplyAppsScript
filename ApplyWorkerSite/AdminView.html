@@ -312,12 +312,10 @@ function workerLocation(key, dateStr) {
   return locationOfDate(lastRecords.find(r => r.key === key), dateStr);
 }
 let lastRecords = [], lastAssignments = [], lastTargets = [];
-let dupNameSet = new Set(); // 이름이 겹치는 근무자가 있으면 화면에 생년월일을 덧붙여 구분
 
-// 동명이인이면 "이름(생년월일6자리)", 생년월일이 없으면 "이름(미상)"으로 표시
-function nameWithDupSuffix_(name, pin) {
-  if (!dupNameSet.has(name)) return name;
-  return name + '(' + (pin ? pin : '미상') + ')';
+// 모든 근무자를 "이름(생년월일6자리)", 생년월일이 없으면 "이름(미상)"으로 표시
+function nameWithBirth_(name, pin) {
+  return name + ' (' + (pin ? pin : '미상') + ')';
 }
 let currentLocationFilter = '전체';
 let adminAuthenticated = false;
@@ -389,7 +387,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
-    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
     lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
   });
   lines.push('');
@@ -398,7 +396,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
-    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
     lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
   });
   return lines.join('\n');
@@ -690,7 +688,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
 
   function renderRow(r, groupList) {
     let nameCell;
-    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${nameWithDupSuffix_(r.name, r.pin)}</span>`;
+    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${nameWithBirth_(r.name, r.pin)}</span>`;
     if (r.gender === '남' || r.gender === '여') {
       const posInGroup = groupList.findIndex(x => x.key === r.key);
       const upKey = posInGroup > 0 ? groupList[posInGroup-1].key : null;
@@ -829,7 +827,7 @@ function buildGenderFixPanel(records) {
   missing.forEach(rec => {
     const selId = 'gbatch_' + rec.key;
     html += `<div class="unassigned-chip" style="margin-bottom:6px;">
-      <span>${nameWithDupSuffix_(rec.name, rec.pin)}</span>
+      <span>${nameWithBirth_(rec.name, rec.pin)}</span>
       <select id="${selId}" data-key="${rec.key}" class="gender-batch-select">
         <option value="">-</option><option value="남">남</option><option value="여">여</option>
       </select>
@@ -1304,7 +1302,7 @@ function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
       weekDates.forEach(d => {
         const full = (byDate[formatDate(d)] && byDate[formatDate(d)][shiftKey]) || [];
         const list = sortByCount(filterGender(full, g));
-        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>nameWithDupSuffix_(p.name, p.pin)).join('<br>')||'-'}</div></td>`;
+        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>nameWithBirth_(p.name, p.pin)).join('<br>')||'-'}</div></td>`;
       });
       html += '</tr>';
     });
@@ -2132,7 +2130,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
-    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
     html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
   html += '<div class="gender-label">여</div>';
@@ -2142,7 +2140,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
-    const dispName = nameWithDupSuffix_(a.name, keyToPin && keyToPin[a.key]);
+    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
     html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
   });
   html += '</div>';
@@ -2171,7 +2169,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const transportArg = transports.length === 0 ? "''" : `document.getElementById('${tId}').value`;
       html += `<div class="unassigned-chip">
         <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${p.name}">
-        <span>${nameWithDupSuffix_(p.name, p.pin)}${locTag}</span>
+        <span>${nameWithBirth_(p.name, p.pin)}${locTag}</span>
         <select id="${gId}">${genderOpts}</select>
         <select id="${fId}" onchange="onFloorSelectChange(this)">${floorOptionsHtml(p.location)}</select>
         ${transportSel}
@@ -2338,10 +2336,6 @@ function loadAdmin() {
 
 function renderAdmin(records, assignments, targets) {
   const content = document.getElementById('adminContent');
-
-  const nameCounts = {};
-  (records || []).forEach(rec => { nameCounts[rec.name] = (nameCounts[rec.name] || 0) + 1; });
-  dupNameSet = new Set(Object.keys(nameCounts).filter(n => nameCounts[n] > 1));
 
   // locationMatches/locationOfDate가 이 인덱스를 읽으므로 거르기 전에 먼저 채운다.
   rebuildAssignLocationIndex_(assignments);
