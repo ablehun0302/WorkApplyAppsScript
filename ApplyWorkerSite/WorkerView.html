@@ -148,11 +148,11 @@ function buildDateList(prefill) {
     const locOptions = LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
+      <select class="date-loc" id="loc-${key}" ${isPast?'disabled':''} onchange="setDateLocation('${key}', this.value)" style="display:${hasShift?'':'none'};">${locOptions}</select>
       <div class="shift-btns">
         <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
         <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
-      </div>
-      <select class="date-loc" id="loc-${key}" ${isPast?'disabled':''} onchange="setDateLocation('${key}', this.value)" style="display:${hasShift?'':'none'};">${locOptions}</select>`;
+      </div>`;
     container.appendChild(row);
     setSelectValue(document.getElementById('loc-' + key), selections[key].location || currentBaseLocation());
   });
