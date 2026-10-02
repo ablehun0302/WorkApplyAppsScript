@@ -165,6 +165,27 @@
       <div id="adminEditMsg"></div>
     </div>
   </div>
+  <div id="pendingEditOverlay" class="edit-overlay" style="display:none;">
+    <div class="edit-overlay-card">
+      <div class="edit-overlay-title">신규 신청 수정 후 승인</div>
+      <div class="period-caption">신청 내용을 고친 뒤 승인하면 고친 값으로 근무자가 등록됩니다.</div>
+      <label>이름</label>
+      <input type="text" id="pendingEditName" placeholder="이름">
+      <label>생년월일 6자리</label>
+      <input type="text" id="pendingEditPin" maxlength="6" inputmode="numeric" placeholder="900101">
+      <label>연락처</label>
+      <input type="tel" id="pendingEditPhone" placeholder="010-0000-0000">
+      <label>성별</label>
+      <select id="pendingEditGender"></select>
+      <label>근무 장소</label>
+      <select id="pendingEditLocation" onchange="refreshAdminDateList('pe')"></select>
+      <label>근무 일정</label>
+      <div id="pendingEditDateList"></div>
+      <button class="primary" onclick="savePendingEditAndApprove()">수정 내용으로 승인</button>
+      <button class="secondary" onclick="closePendingEditOverlay()">취소</button>
+      <div id="pendingEditMsg"></div>
+    </div>
+  </div>
 </div>
 <div id="loadingOverlay" class="loading-overlay"><div class="loading-spinner"></div></div>
 <script>var PAGE_KEY = 'admin'; var BASE_URL = '<?!= baseUrl ?>';</script>
@@ -249,7 +270,8 @@ const DEFAULT_FLOORS = ['1층','2층','3층','입출하','미화','날인실','�
 const FLOORS_BY_LOCATION = {
   '델몬트_원남': ['증평','음성','괴산','청주','충주','금왕','진천','기타'],
   '포장우리와_금왕': ['포장','원료','기타'],
-  '물류우리와_금왕': ['검수','주간지게','야간지게','재적재','기타']
+  '물류우리와_금왕': ['검수','주간지게','야간지게','재적재','기타'],
+  '주방보조_전국': ['솔브레인 공주','네이버데이터센터','한라스택폴','현대프리미엄아울렛 대전','노바렉스','현대백화점 충청','기타']
 };
 const TRANSPORTS_BY_LOCATION = { '델몬트_원남': ['버스','자차'] };
 function floorsFor(loc) {
@@ -312,7 +334,14 @@ function assignmentLocation(a, recByKey) {
 function workerLocation(key, dateStr) {
   return locationOfDate(lastRecords.find(r => r.key === key), dateStr);
 }
+// 주간 표 칸에 덧붙이는 주방보조 근무형태·시간 표기. 주방보조 날짜가 아니거나 근무형태 미입력이면 빈 문자열.
+function kitchenCellLabel(rec, dateStr, shiftKey) {
+  if (shiftKey !== 'day' || locationOfDate(rec, dateStr) !== KITCHEN_LOCATION) return '';
+  const label = kitchenShiftLabel((rec.shifts || []).find(s => s.date === dateStr));
+  return label ? `<div class="kitchen-label">${label}</div>` : '';
+}
 let lastRecords = [], lastAssignments = [], lastTargets = [];
+let lastPending = []; // 승인 대기 중인 신규 근무자 신청(신규데이터 시트)
 
 // 모든 근무자를 "이름(생년월일6자리)", 생년월일이 없으면 "이름(미상)"으로 표시
 function nameWithBirth_(name, pin) {
@@ -382,7 +411,14 @@ function floorRank(floor, loc) {
 function floorLabel(a) {
   return [a.floor, a.transport].filter(Boolean).join('_');
 }
-function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth) {
+// 배치 문자·배치판 목록의 이름 줄 끝에 붙이는 " (파트 10~15)". 주방보조로 배치된 주간 근무에만 붙는다.
+function kitchenAssignSuffix(a, recByKey) {
+  if (a.shift !== 'day' || assignmentLocation(a, recByKey) !== KITCHEN_LOCATION) return '';
+  const rec = recByKey && recByKey[a.key];
+  const label = kitchenShiftLabel(rec && (rec.shifts || []).find(s => s.date === a.date));
+  return label ? ' (' + label + ')' : '';
+}
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey) {
   const lines = [];
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
   lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
@@ -393,7 +429,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
-    lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
+    lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
   lines.push('');
   if (femaleList.length === 0) lines.push('(여 배치 없음)');
@@ -402,7 +438,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
-    lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
+    lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
   return lines.join('\n');
 }
@@ -680,7 +716,8 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
     gender: rec.adminGender || rec.gender || '',
     sortOrder: rec.sortOrder || 0,
     shifts: (rec.shifts || []).filter(s => locationMatches(rec, s.date)),
-    allShifts: rec.shifts || []
+    allShifts: rec.shifts || [],
+    rec: rec
   }));
 
   const male = withMeta.filter(r => r.gender === '남').sort((a,b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name,'ko'));
@@ -737,7 +774,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
       const transport = asg ? asg.transport : '';
-      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}</td>`;
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}${kitchenCellLabel(r.rec, dateStr, shiftKey)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -1161,13 +1198,16 @@ function applyInfoCellPendingStyle(dateStr, shiftKey, key) {
   if (!cell) return;
   const wchar = cell.dataset.wchar || '';
   const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
+  // 칸 내용을 통째로 다시 쓰므로 주방보조 근무형태·시간 표기도 다시 붙인다.
+  const rec = lastRecords.find(r => r.key === key);
+  const kitchenLabel = rec ? kitchenCellLabel(rec, dateStr, shiftKey) : '';
   if (pending) {
     cell.classList.add('info-pending');
-    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport);
+    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport) + kitchenLabel;
   } else {
     cell.classList.remove('info-pending');
     const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '');
+    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '') + kitchenLabel;
   }
 }
 
@@ -1667,6 +1707,7 @@ window.addEventListener('popstate', function() {
   if (document.getElementById('pastHistoryOverlay').style.display === 'flex') closePastHistoryOverlay();
   else if (document.getElementById('adminAddOverlay').style.display === 'flex') closeAdminAddOverlay();
   else if (document.getElementById('adminEditOverlay').style.display === 'flex') closeAdminEditOverlay();
+  else if (document.getElementById('pendingEditOverlay').style.display === 'flex') closePendingEditOverlay();
 });
 
 function openPastHistoryEditor(key, name) {
@@ -1801,6 +1842,65 @@ let adminAddLoadedKey = null; // 폼에 정보를 불러온 기존 근무자의 
 let adminAddAutosaveSnapshot = ''; // 마지막으로 자동저장된 대기목록 스냅샷 (변경 없으면 재저장 스킵)
 let adminAddAutosaveTimer = null;
 
+// ---------- 관리자 창 세 곳의 날짜 줄 (근무자 추가 aa · 일정 수정 ae · 신규 신청 수정 pe) ----------
+// 날짜의 근무지가 주방보조이면 주간/야간 대신 근무형태·시간대를 고른다. 세 창이 같은 줄을 쓰므로
+// 창마다 다른 것(선택 상태, 기본 근무지, 주간/야간 토글 함수)만 여기 적어 둔다.
+let adminEditBaseLocation = '';
+const ADMIN_DATE_SCOPES = {
+  aa: { toggle: 'toggleAdminAddShift', sels: () => adminAddSelections, base: () => getAdminAddLocation()[0] || '' },
+  ae: { toggle: 'toggleAdminEditShift', sels: () => adminEditSelections, base: () => adminEditBaseLocation },
+  pe: { toggle: 'togglePendingEditShift', sels: () => pendingEditSelections, base: () => document.getElementById('pendingEditLocation').value }
+};
+Object.keys(ADMIN_DATE_SCOPES).forEach(scope => {
+  KITCHEN_SCOPES[scope] = { get: key => ADMIN_DATE_SCOPES[scope].sels()[key], redraw: key => redrawAdminDateControls(scope, key) };
+});
+// 한 날짜의 선택 상태 초깃값. location은 근무자가 그 날짜만 따로 고른 근무지로, 주방보조 판정에만
+// 쓰고 저장할 때는 보내지 않는다(서버 mergeShiftExtras_가 되살린다).
+function adminDateSelection(found) {
+  const s = found || {};
+  return { day: !!s.day, night: !!s.night, location: s.location || '', workType: s.workType || '', timeFrom: s.timeFrom || '', timeTo: s.timeTo || '' };
+}
+function adminDateIsKitchen(scope, key) {
+  const s = ADMIN_DATE_SCOPES[scope];
+  return (s.sels()[key].location || s.base()) === KITCHEN_LOCATION;
+}
+function adminDateControlsHtml(scope, key) {
+  const s = ADMIN_DATE_SCOPES[scope];
+  const sel = s.sels()[key];
+  if (adminDateIsKitchen(scope, key)) return kitchenControlsHtml(scope, key, sel, false);
+  return `<div class="shift-btns">
+        <div class="shift-btn ${sel.day?'selected':''}" id="${scope}_day_${key}" onclick="${s.toggle}('${key}','day')">주간</div>
+        <div class="shift-btn ${sel.night?'selected':''}" id="${scope}_night_${key}" onclick="${s.toggle}('${key}','night')">야간</div>
+      </div>`;
+}
+function redrawAdminDateControls(scope, key) {
+  document.getElementById(scope + '_ctl_' + key).innerHTML = adminDateControlsHtml(scope, key);
+}
+// 창에서 근무지 선택이 바뀌면 모든 날짜를 그 근무지에 맞게 바꾸고 다시 그린다.
+function refreshAdminDateList(scope) {
+  const sels = ADMIN_DATE_SCOPES[scope].sels();
+  Object.keys(sels).forEach(key => {
+    applyKitchenMode(sels[key], adminDateIsKitchen(scope, key));
+    redrawAdminDateControls(scope, key);
+  });
+}
+// 서버로 보낼 shifts. workType은 주방보조 날짜에만 남아 있다(applyKitchenMode가 다른 근무지에서는 비운다).
+function adminDateShifts(scope) {
+  return Object.entries(ADMIN_DATE_SCOPES[scope].sels())
+    .filter(([k,v]) => v.day || v.night)
+    .map(([k,v]) => {
+      const item = { date: k, day: v.day, night: v.night };
+      if (v.workType) { item.workType = v.workType; item.timeFrom = v.timeFrom; item.timeTo = v.timeTo; }
+      return item;
+    });
+}
+// 시간이 빠진 주방보조 날짜가 있으면 안내 문구를, 없으면 빈 문자열을 돌려준다.
+function adminDateKitchenError(scope) {
+  const sels = ADMIN_DATE_SCOPES[scope].sels();
+  const badKey = Object.keys(sels).find(k => kitchenTimeError(sels[k]));
+  return badKey ? shortDate(badKey) + ' 주방보조 근무 시간을 선택해주세요. 시작과 종료는 달라야 합니다.' : '';
+}
+
 function openAdminAddOverlay() {
   document.getElementById('adminAddName').value = '';
   document.getElementById('adminAddPin').value = '';
@@ -1887,7 +1987,7 @@ function renderAdminAddLocation(selected) {
   const container = document.getElementById('adminAddLocationRadios');
   container.innerHTML = LOCATIONS.map(loc => {
     const checked = (loc === selected) ? 'checked' : '';
-    return `<label><input type="radio" name="adminAddLocation" value="${loc}" ${checked}>${loc}</label>`;
+    return `<label><input type="radio" name="adminAddLocation" value="${loc}" ${checked} onchange="refreshAdminDateList('aa')">${loc}</label>`;
   }).join('');
 }
 function getAdminAddLocation() {
@@ -1910,20 +2010,14 @@ function buildAdminAddDateList(prefillShifts) {
     }
     const key2 = formatDate(d);
     const dow = DAY_NAMES[d.getDay()];
-    adminAddSelections[key2] = { day: false, night: false };
-    if (prefillShifts) {
-      const found = prefillShifts.find(s => s.date === key2);
-      if (found) { adminAddSelections[key2].day = !!found.day; adminAddSelections[key2].night = !!found.night; }
-    }
+    adminAddSelections[key2] = adminDateSelection(prefillShifts && prefillShifts.find(s => s.date === key2));
+    applyKitchenMode(adminAddSelections[key2], adminDateIsKitchen('aa', key2));
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
-      <div class="shift-btns">
-        <div class="shift-btn ${adminAddSelections[key2].day?'selected':''}" id="aa_day_${key2}" onclick="toggleAdminAddShift('${key2}','day')">주간</div>
-        <div class="shift-btn ${adminAddSelections[key2].night?'selected':''}" id="aa_night_${key2}" onclick="toggleAdminAddShift('${key2}','night')">야간</div>
-      </div>`;
+      <div class="shift-ctl" id="aa_ctl_${key2}">${adminDateControlsHtml('aa', key2)}</div>`;
     container.appendChild(row);
   });
 }
@@ -2001,11 +2095,14 @@ function stageAdminAddRecord() {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요. (모르면 비워두고 나중에 추가 가능)</div>';
     return;
   }
-  const chosen = Object.entries(adminAddSelections)
-    .filter(([k,v]) => v.day || v.night)
-    .map(([k,v]) => ({date:k, day:v.day, night:v.night}));
+  const chosen = adminDateShifts('aa');
   if (chosen.length === 0) {
     msgEl.innerHTML = '<div class="msg err">최소 하나의 근무 날짜를 선택해주세요.</div>';
+    return;
+  }
+  const kitchenErr = adminDateKitchenError('aa');
+  if (kitchenErr) {
+    msgEl.innerHTML = '<div class="msg err">' + kitchenErr + '</div>';
     return;
   }
 
@@ -2055,6 +2152,7 @@ function openAdminEditShifts(key, name) {
   adminEditKey = key;
   const rec = lastRecords.find(r => r.key === key);
   const existingShifts = rec ? (rec.shifts || []) : [];
+  adminEditBaseLocation = rec ? (rec.adminLocation || (rec.locations && rec.locations[0]) || '') : '';
   document.getElementById('adminEditTitle').textContent = name + '님 일정 수정';
   document.getElementById('adminEditMsg').innerHTML = '';
   document.getElementById('adminEditName').value = name || '';
@@ -2075,19 +2173,15 @@ function openAdminEditShifts(key, name) {
     }
     const key2 = formatDate(d);
     const dow = DAY_NAMES[d.getDay()];
-    adminEditSelections[key2] = { day: false, night: false };
-    const found = existingShifts.find(s => s.date === key2);
-    if (found) { adminEditSelections[key2].day = !!found.day; adminEditSelections[key2].night = !!found.night; }
+    adminEditSelections[key2] = adminDateSelection(existingShifts.find(s => s.date === key2));
+    applyKitchenMode(adminEditSelections[key2], adminDateIsKitchen('ae', key2));
 
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
-      <div class="shift-btns">
-        <div class="shift-btn ${adminEditSelections[key2].day?'selected':''}" id="ae_day_${key2}" onclick="toggleAdminEditShift('${key2}','day')">주간</div>
-        <div class="shift-btn ${adminEditSelections[key2].night?'selected':''}" id="ae_night_${key2}" onclick="toggleAdminEditShift('${key2}','night')">야간</div>
-      </div>`;
+      <div class="shift-ctl" id="ae_ctl_${key2}">${adminDateControlsHtml('ae', key2)}</div>`;
     container.appendChild(row);
   });
 
@@ -2107,9 +2201,7 @@ function closeAdminEditOverlay() {
 }
 
 function saveAdminShiftsEdit() {
-  const shifts = Object.entries(adminEditSelections)
-    .filter(([k,v]) => v.day || v.night)
-    .map(([k,v]) => ({ date:k, day:v.day, night:v.night }));
+  const shifts = adminDateShifts('ae');
   const name = document.getElementById('adminEditName').value.trim();
   const phone = document.getElementById('adminEditPhone').value.trim();
   const pin = document.getElementById('adminEditPin').value.trim();
@@ -2121,6 +2213,11 @@ function saveAdminShiftsEdit() {
   }
   if (pin && !/^[0-9]{6}$/.test(pin)) {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
+    return;
+  }
+  const kitchenErr = adminDateKitchenError('ae');
+  if (kitchenErr) {
+    msgEl.innerHTML = '<div class="msg err">' + kitchenErr + '</div>';
     return;
   }
 
@@ -2141,6 +2238,167 @@ function saveAdminShiftsEdit() {
       msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>';
     })
     .adminUpdateShifts(adminEditKey, shifts, adminPassword);
+}
+
+// ---------- 신규 근무자 신청 승인 ----------
+// 신규 신청은 로그인 없이 누구나 넣을 수 있는 값이라, 이 패널에서는 태그로 해석되지 않게 바꿔서 보여준다.
+function escapeHtml_(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function pendingShiftSummary_(p) {
+  const base = (p.locations && p.locations[0]) || '';
+  return (p.shifts || []).slice().sort((a, b) => a.date < b.date ? -1 : 1).map(s => {
+    // 주방보조 날짜는 주간/야간 대신 근무형태·시간을 적는다. 근무형태 미입력이면 주간/야간으로 적는다.
+    const kitchenText = (s.location || base) === KITCHEN_LOCATION ? kitchenShiftLabel(s) : '';
+    const shiftText = kitchenText || [s.day ? '주간' : '', s.night ? '야간' : ''].filter(Boolean).join('·');
+    const locText = (s.location && s.location !== base) ? ' ' + s.location : '';
+    return shortDate(s.date) + ' ' + shiftText + locText;
+  }).join(', ');
+}
+
+function buildPendingPanel() {
+  if (lastPending.length === 0) return '';
+  const btnStyle = 'width:auto; padding:6px 14px; margin-top:0; font-size:13px;';
+  let html = '<div class="card" id="pendingPanel">';
+  html += `<div style="font-weight:700;">🆕 신규 근무자 신청 ${lastPending.length}건</div>`;
+  html += '<div class="period-caption">승인하면 근무자로 등록되어 배치판에 나타납니다. 거절하면 신청이 삭제됩니다.</div>';
+  lastPending.forEach((p, idx) => {
+    // 등록된 근무자가 이름·생년월일을 잘못 넣어 신규로 들어온 경우를 알아볼 수 있게 한다.
+    const sameName = lastRecords.filter(r => r.name === p.name);
+    html += `<div style="border-top:1px solid #eee; padding:10px 0; font-size:13px;">
+      <div><b>${escapeHtml_(nameWithBirth_(p.name, p.pin))}</b> · ${escapeHtml_(p.gender || '성별 미지정')} · ${escapeHtml_(p.phone || '연락처 없음')} · ${escapeHtml_((p.locations && p.locations[0]) || '근무지 미지정')}</div>
+      <div style="margin-top:4px;">일정: ${escapeHtml_(pendingShiftSummary_(p) || '없음')}</div>
+      ${p.message ? `<div style="margin-top:4px; white-space:pre-wrap; color:#555;">하고 싶은 말: ${escapeHtml_(p.message)}</div>` : ''}
+      ${sameName.length ? `<div style="margin-top:4px; color:#c0392b;">⚠ 같은 이름의 등록 근무자가 있습니다: ${escapeHtml_(sameName.map(r => nameWithBirth_(r.name, r.pin)).join(', '))}</div>` : ''}
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+        <button class="primary" style="${btnStyle}" onclick="approvePendingAt(${idx})">승인</button>
+        <button class="secondary" style="${btnStyle}" onclick="openPendingEditOverlay(${idx})">수정 후 승인</button>
+        <button class="danger" style="${btnStyle}" onclick="rejectPendingAt(${idx})">거절</button>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+// 승인·거절 뒤에는 배치판을 다시 불러온다. 서버가 false를 주면 다른 관리자가 먼저 처리한 것이고,
+// 'changed'를 주면 이 화면을 불러온 뒤 신청자가 내용을 고친 것이라 승인되지 않았다.
+function onPendingHandled_(result) {
+  if (result === 'changed') alert('승인하려는 사이 신청자가 신청 내용을 수정해 승인하지 않았습니다. 바뀐 내용을 확인한 뒤 다시 승인해 주세요.');
+  else if (!result) alert('이미 처리된 신청입니다. 목록을 새로 불러옵니다.');
+  saveScrollForRefresh();
+  loadAdmin();
+}
+
+function approvePendingAt(idx) {
+  const p = lastPending[idx];
+  if (!confirm(nameWithBirth_(p.name, p.pin) + '님의 신청을 승인해 근무자로 등록할까요?')) return;
+  adminRun()
+    .withSuccessHandler(onPendingHandled_)
+    .withFailureHandler(function(err) { alert('승인 오류: ' + err.message); })
+    .approvePending(p.key, null, p.version, adminPassword);
+}
+
+function rejectPendingAt(idx) {
+  const p = lastPending[idx];
+  if (!confirm(nameWithBirth_(p.name, p.pin) + '님의 신청을 거절할까요? 신청 내용이 삭제되며 되돌릴 수 없습니다.')) return;
+  adminRun()
+    .withSuccessHandler(onPendingHandled_)
+    .withFailureHandler(function(err) { alert('거절 오류: ' + err.message); })
+    .rejectPending(p.key, adminPassword);
+}
+
+let pendingEditKey = null;
+let pendingEditVersion = '';
+let pendingEditSelections = {};
+
+function openPendingEditOverlay(idx) {
+  const p = lastPending[idx];
+  pendingEditKey = p.key;
+  pendingEditVersion = p.version;
+  document.getElementById('pendingEditMsg').innerHTML = '';
+  document.getElementById('pendingEditName').value = p.name || '';
+  document.getElementById('pendingEditPin').value = p.pin || '';
+  document.getElementById('pendingEditPhone').value = p.phone || '';
+  document.getElementById('pendingEditGender').innerHTML = ['', '남', '여'].map(g => `<option value="${g}" ${g===(p.gender||'')?'selected':''}>${g || '-'}</option>`).join('');
+  const loc = (p.locations && p.locations[0]) || '';
+  document.getElementById('pendingEditLocation').innerHTML = [''].concat(LOCATIONS).map(l => `<option value="${l}" ${l===loc?'selected':''}>${l || '-'}</option>`).join('');
+
+  const container = document.getElementById('pendingEditDateList');
+  container.innerHTML = '';
+  pendingEditSelections = {};
+  getTwoWeekDates().forEach((d, idx2) => {
+    if (idx2 === 0 || idx2 === 7) {
+      const we = new Date(d); we.setDate(d.getDate()+6);
+      const t = document.createElement('div');
+      t.className = 'week-title';
+      t.textContent = (idx2===0?'1주차':'2주차') + ` (${d.getMonth()+1}/${d.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
+      container.appendChild(t);
+    }
+    const key2 = formatDate(d);
+    pendingEditSelections[key2] = adminDateSelection((p.shifts || []).find(s => s.date === key2));
+    applyKitchenMode(pendingEditSelections[key2], adminDateIsKitchen('pe', key2));
+    const row = document.createElement('div');
+    row.className = 'date-row';
+    const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    row.innerHTML = `
+      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${DAY_NAMES[d.getDay()]})</div>
+      <div class="shift-ctl" id="pe_ctl_${key2}">${adminDateControlsHtml('pe', key2)}</div>`;
+    container.appendChild(row);
+  });
+
+  document.getElementById('pendingEditOverlay').style.display = 'flex';
+  pushOverlayHistory();
+}
+
+function togglePendingEditShift(key, type) {
+  pendingEditSelections[key][type] = !pendingEditSelections[key][type];
+  document.getElementById('pe_' + type + '_' + key).classList.toggle('selected', pendingEditSelections[key][type]);
+}
+
+function closePendingEditOverlay() {
+  document.getElementById('pendingEditOverlay').style.display = 'none';
+  pendingEditKey = null;
+  consumeOverlayHistory();
+}
+
+function savePendingEditAndApprove() {
+  const name = document.getElementById('pendingEditName').value.trim();
+  const pin = document.getElementById('pendingEditPin').value.trim();
+  const location = document.getElementById('pendingEditLocation').value;
+  const msgEl = document.getElementById('pendingEditMsg');
+  if (!name) {
+    msgEl.innerHTML = '<div class="msg err">이름을 입력해주세요.</div>';
+    return;
+  }
+  // 근무자는 이름+생년월일로 신청 화면에 들어오므로, 생년월일 없이 등록하면 본인이 조회하지 못한다.
+  if (!/^[0-9]{6}$/.test(pin)) {
+    msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
+    return;
+  }
+  const kitchenErr = adminDateKitchenError('pe');
+  if (kitchenErr) {
+    msgEl.innerHTML = '<div class="msg err">' + kitchenErr + '</div>';
+    return;
+  }
+  const edits = {
+    name: name,
+    pin: pin,
+    phone: document.getElementById('pendingEditPhone').value.trim(),
+    gender: document.getElementById('pendingEditGender').value,
+    locations: location ? [location] : [],
+    shifts: adminDateShifts('pe')
+  };
+  adminRun()
+    .withSuccessHandler(function(result) {
+      closePendingEditOverlay();
+      onPendingHandled_(result);
+    })
+    .withFailureHandler(function(err) {
+      msgEl.innerHTML = '<div class="msg err">승인 오류: ' + err.message + '</div>';
+    })
+    .approvePending(pendingEditKey, edits, pendingEditVersion, adminPassword);
 }
 
 function floorOptionsHtml(loc) {
@@ -2183,7 +2441,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
     const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
   });
   html += '<div class="gender-label">여</div>';
   if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
@@ -2193,7 +2451,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
     const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
   });
   html += '</div>';
   if (assignedForSlot.length > 0) {
@@ -2241,8 +2499,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   const taId = `text_${dateStr}_${shift}`;
   const msgId = `copymsg_${dateStr}_${shift}`;
   shiftTextCache[taId] = {
-    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true),
-    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false)
+    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey),
+    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey)
   };
   const previewText = includeBirthInCopy ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
   html += `<div class="text-preview-wrap">
@@ -2384,12 +2642,13 @@ function loadAdmin() {
   const content = document.getElementById('adminContent');
   content.innerHTML = '<div class="empty">불러오는 중...</div>';
   showLoading();
-  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword)])
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword), runScript('getPendingRecords', adminPassword)])
     .then(function(results) {
       hideLoading();
       lastRecords = results[0] || [];
       lastAssignments = results[1] || [];
       lastTargets = results[2] || [];
+      lastPending = results[3] || [];
       renderAdmin(lastRecords, lastAssignments, lastTargets);
     })
     .catch(function(err) {
@@ -2443,7 +2702,7 @@ function renderAdmin(records, assignments, targets) {
   });
 
   document.getElementById('adminLocationTabs').innerHTML = buildLocationTabs();
-  let html = buildGenderFixPanel(filteredRecords);
+  let html = buildPendingPanel() + buildGenderFixPanel(filteredRecords);
   const locationLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);

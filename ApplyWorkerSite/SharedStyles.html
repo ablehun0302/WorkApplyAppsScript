@@ -22,6 +22,11 @@
   .shift-btn.selected { background: #2f6fed; color: white; border-color: #2f6fed; }
   .shift-btn.disabled { background: #f0f0f0; color: #bbb; border-color: #e5e5e5; cursor: not-allowed; }
   .shift-btn.disabled.selected { background: #c3cbe0; color: #33406b; border-color: #c3cbe0; cursor: not-allowed;}
+  /* 날짜 줄의 버튼 영역. display:contents로 감싸야 주방보조 시간 선택이 .date-row의 다음 줄로 내려간다. */
+  .shift-ctl { display: contents; }
+  .kitchen-times { flex-basis: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 6px; font-size: 13px; }
+  .kitchen-time { width: auto; padding: 6px 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; font-family: inherit; background: white; }
+  .kitchen-time:disabled { background: #f5f5f5; color: #aaa; }
   button, .shift-btn, .location-tab, .reorder-btn, .batch-all-btn { transition: transform 0.06s ease; }
   button:active, .shift-btn:active, .location-tab:active, .reorder-btn:active, .batch-all-btn:active { transform: scale(0.95); }
   button.primary { width: 100%; padding: 13px; margin-top: 10px; background: #2f6fed; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
@@ -91,6 +96,7 @@
   .mark-triangle { position: absolute; top: 1px; left: 0; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 17px solid #3182ce; }
   .mark-char { position: relative; z-index: 1; color: white; font-weight: 700; font-size: 11px; }
   .mark-label { color: #d97706; font-size: 9px; font-weight: 700; margin-top: 1px; }
+  .kitchen-label { color: #0f766e; font-size: 9px; font-weight: 700; margin-top: 1px; }
   .cnt.day { color: #856404; font-weight: 700; }
   .cnt.night { color: #1a3d8f; font-weight: 700; }
   .names { font-size: 11px; color: #555; margin-top: 2px; }

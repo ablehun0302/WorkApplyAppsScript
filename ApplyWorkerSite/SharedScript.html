@@ -42,4 +42,82 @@ function restoreScrollImmediate() {
   const savedScrollY = sessionStorage.getItem('scrollY:' + PAGE_KEY);
   if (savedScrollY !== null) window.scrollTo(0, parseInt(savedScrollY, 10));
 }
+
+// ---- 주방보조 근무형태·시간대 ----
+// 주방보조는 주간/야간 대신 근무형태(파트타임/풀타임)와 가능한 시간대를 날짜마다 받는다.
+// 저장은 기존 주간 칸(day)을 켠 채로 하고 workType·timeFrom·timeTo만 덧붙인다.
+const KITCHEN_LOCATION = '주방보조_전국';
+const WORK_TYPES = { Part: '파트타임', Full: '풀타임' };
+const WORK_TYPE_SHORT = { Part: '파트', Full: '풀' };
+
+function isWorkType_(v) {
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(WORK_TYPES, v);
+}
+// 시작은 00:00~23:30, 종료는 00:30~24:00 (30분 단위)
+function kitchenTimes_(field) {
+  const list = [];
+  for (let m = 0; m <= 24 * 60; m += 30) list.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+  return field === 'timeFrom' ? list.slice(0, -1) : list.slice(1);
+}
+function kitchenTimeShort_(field, t) {
+  if (kitchenTimes_(field).indexOf(t) === -1) return '';
+  const h = String(parseInt(t.slice(0, 2), 10));
+  return t.slice(3) === '00' ? h : h + ':' + t.slice(3);
+}
+// "파트 10~15" 형태의 짧은 표기. 신청 저장은 로그인 없이 호출돼 임의 문자열이 들어올 수 있으므로
+// 아는 근무형태와 목록에 있는 시간만 출력한다 — 관리자 화면은 이 결과를 그대로 HTML에 넣는다.
+function kitchenShiftLabel(s) {
+  if (!s || !isWorkType_(s.workType)) return '';
+  const from = kitchenTimeShort_('timeFrom', s.timeFrom), to = kitchenTimeShort_('timeTo', s.timeTo);
+  return WORK_TYPE_SHORT[s.workType] + (from && to ? ' ' + from + '~' + to : '');
+}
+// 한 날짜의 선택 상태(sel)를 그 날짜 근무지에 맞춘다. 주방보조가 되면 주간/야간 신청을 근무형태
+// 신청으로, 주방보조가 아니게 되면 근무형태 신청을 주간 신청으로 바꾼다. sel을 직접 고친다.
+function applyKitchenMode(sel, isKitchen) {
+  if (isKitchen && (sel.day || sel.night)) {
+    if (!isWorkType_(sel.workType)) { sel.workType = 'Part'; sel.timeFrom = ''; sel.timeTo = ''; }
+    if (kitchenTimes_('timeFrom').indexOf(sel.timeFrom) === -1) sel.timeFrom = '';
+    if (kitchenTimes_('timeTo').indexOf(sel.timeTo) === -1) sel.timeTo = '';
+    sel.day = true; sel.night = false;
+  } else {
+    sel.workType = ''; sel.timeFrom = ''; sel.timeTo = '';
+  }
+  return sel;
+}
+// 신청된 주방보조 날짜인데 시간이 비었거나 시작과 종료가 같으면 true. 종료가 시작보다 이른 것은
+// 자정을 넘기는 시간대(22:00~02:00)라 허용한다.
+function kitchenTimeError(sel) {
+  return !!sel.workType && (!sel.timeFrom || !sel.timeTo || sel.timeFrom === sel.timeTo);
+}
+// 주방보조 날짜 줄의 근무형태 버튼과 시간 선택. 신청 화면과 관리자 창 세 곳이 함께 쓴다.
+// scope는 KITCHEN_SCOPES의 키로, 버튼을 눌렀을 때 어느 화면의 선택 상태를 고칠지 가리킨다.
+function kitchenControlsHtml(scope, key, sel, disabled) {
+  const btn = (type) => {
+    const cls = 'shift-btn' + (sel.workType === type ? ' selected' : '') + (disabled ? ' disabled' : '');
+    const onclick = disabled ? '' : ` onclick="toggleKitchenType('${scope}','${key}','${type}')"`;
+    return `<div class="${cls}"${onclick}>${WORK_TYPES[type]}</div>`;
+  };
+  const timeSel = (field, placeholder) => {
+    const opts = kitchenTimes_(field).map(t => `<option value="${t}"${sel[field] === t ? ' selected' : ''}>${t}</option>`).join('');
+    return `<select class="kitchen-time"${disabled ? ' disabled' : ''} onchange="setKitchenTime('${scope}','${key}','${field}',this.value)"><option value="">${placeholder}</option>${opts}</select>`;
+  };
+  let html = `<div class="shift-btns">${btn('Part')}${btn('Full')}</div>`;
+  if (sel.workType) html += `<div class="kitchen-times">${timeSel('timeFrom', '시작')} ~ ${timeSel('timeTo', '종료')}</div>`;
+  return html;
+}
+// 화면별 { get(key) -> 그 날짜의 선택 상태, redraw(key) -> 그 날짜 줄 다시 그리기 }
+const KITCHEN_SCOPES = {};
+// 선택된 근무형태를 다시 누르면 그 날짜 신청을 취소한다.
+function toggleKitchenType(scope, key, type) {
+  const sel = KITCHEN_SCOPES[scope].get(key);
+  if (sel.workType === type) {
+    sel.workType = ''; sel.timeFrom = ''; sel.timeTo = ''; sel.day = false; sel.night = false;
+  } else {
+    sel.workType = type; sel.day = true; sel.night = false;
+  }
+  KITCHEN_SCOPES[scope].redraw(key);
+}
+function setKitchenTime(scope, key, field, value) {
+  KITCHEN_SCOPES[scope].get(key)[field] = value;
+}
 </script>
