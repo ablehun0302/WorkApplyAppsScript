@@ -603,4 +603,11 @@ test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다
   assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '생년월일 포함 복사 텍스트');
 });
 
+test('배치정보: 주방보조는 근무 현장 목록에서 고른다', () => {
+  const v = loadAdminView('');
+  assert.deepStrictEqual(JSON.parse(v.W('JSON.stringify(floorsFor(KITCHEN_LOCATION))')),
+    ['솔브레인 공주', '네이버데이터센터', '한라스택폴', '현대프리미엄아울렛 대전', '노바렉스', '현대백화점 충청', '기타']);
+  assert.deepStrictEqual(JSON.parse(v.W('JSON.stringify(transportsFor(KITCHEN_LOCATION))')), [], '이동수단은 받지 않는다');
+});
+
 console.log('\n' + passed + '개 통과');
