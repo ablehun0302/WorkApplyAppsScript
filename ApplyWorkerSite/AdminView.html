@@ -333,6 +333,12 @@ function assignmentLocation(a, recByKey) {
 function workerLocation(key, dateStr) {
   return locationOfDate(lastRecords.find(r => r.key === key), dateStr);
 }
+// 주간 표 칸에 덧붙이는 주방보조 근무형태·시간 표기. 주방보조 날짜가 아니거나 근무형태 미입력이면 빈 문자열.
+function kitchenCellLabel(rec, dateStr, shiftKey) {
+  if (shiftKey !== 'day' || locationOfDate(rec, dateStr) !== KITCHEN_LOCATION) return '';
+  const label = kitchenShiftLabel((rec.shifts || []).find(s => s.date === dateStr));
+  return label ? `<div class="kitchen-label">${label}</div>` : '';
+}
 let lastRecords = [], lastAssignments = [], lastTargets = [];
 let lastPending = []; // 승인 대기 중인 신규 근무자 신청(신규데이터 시트)
 
@@ -404,7 +410,14 @@ function floorRank(floor, loc) {
 function floorLabel(a) {
   return [a.floor, a.transport].filter(Boolean).join('_');
 }
-function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth) {
+// 배치 문자·배치판 목록의 이름 줄 끝에 붙이는 " (파트 10~15)". 주방보조로 배치된 주간 근무에만 붙는다.
+function kitchenAssignSuffix(a, recByKey) {
+  if (a.shift !== 'day' || assignmentLocation(a, recByKey) !== KITCHEN_LOCATION) return '';
+  const rec = recByKey && recByKey[a.key];
+  const label = kitchenShiftLabel(rec && (rec.shifts || []).find(s => s.date === a.date));
+  return label ? ' (' + label + ')' : '';
+}
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey) {
   const lines = [];
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
   lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
@@ -415,7 +428,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
-    lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
+    lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
   lines.push('');
   if (femaleList.length === 0) lines.push('(여 배치 없음)');
@@ -424,7 +437,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
-    lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
+    lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
   return lines.join('\n');
 }
@@ -702,7 +715,8 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
     gender: rec.adminGender || rec.gender || '',
     sortOrder: rec.sortOrder || 0,
     shifts: (rec.shifts || []).filter(s => locationMatches(rec, s.date)),
-    allShifts: rec.shifts || []
+    allShifts: rec.shifts || [],
+    rec: rec
   }));
 
   const male = withMeta.filter(r => r.gender === '남').sort((a,b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name,'ko'));
@@ -759,7 +773,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
       const transport = asg ? asg.transport : '';
-      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}</td>`;
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}${kitchenCellLabel(r.rec, dateStr, shiftKey)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -1183,13 +1197,16 @@ function applyInfoCellPendingStyle(dateStr, shiftKey, key) {
   if (!cell) return;
   const wchar = cell.dataset.wchar || '';
   const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
+  // 칸 내용을 통째로 다시 쓰므로 주방보조 근무형태·시간 표기도 다시 붙인다.
+  const rec = lastRecords.find(r => r.key === key);
+  const kitchenLabel = rec ? kitchenCellLabel(rec, dateStr, shiftKey) : '';
   if (pending) {
     cell.classList.add('info-pending');
-    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport);
+    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport) + kitchenLabel;
   } else {
     cell.classList.remove('info-pending');
     const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '');
+    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '') + kitchenLabel;
   }
 }
 
@@ -2231,7 +2248,9 @@ function escapeHtml_(s) {
 function pendingShiftSummary_(p) {
   const base = (p.locations && p.locations[0]) || '';
   return (p.shifts || []).slice().sort((a, b) => a.date < b.date ? -1 : 1).map(s => {
-    const shiftText = [s.day ? '주간' : '', s.night ? '야간' : ''].filter(Boolean).join('·');
+    // 주방보조 날짜는 주간/야간 대신 근무형태·시간을 적는다. 근무형태 미입력이면 주간/야간으로 적는다.
+    const kitchenText = (s.location || base) === KITCHEN_LOCATION ? kitchenShiftLabel(s) : '';
+    const shiftText = kitchenText || [s.day ? '주간' : '', s.night ? '야간' : ''].filter(Boolean).join('·');
     const locText = (s.location && s.location !== base) ? ' ' + s.location : '';
     return shortDate(s.date) + ' ' + shiftText + locText;
   }).join(', ');
@@ -2421,7 +2440,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
     const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
   });
   html += '<div class="gender-label">여</div>';
   if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
@@ -2431,7 +2450,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
     const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
     const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${locTag}</label></div>`;
+    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
   });
   html += '</div>';
   if (assignedForSlot.length > 0) {
@@ -2479,8 +2498,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   const taId = `text_${dateStr}_${shift}`;
   const msgId = `copymsg_${dateStr}_${shift}`;
   shiftTextCache[taId] = {
-    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true),
-    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false)
+    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey),
+    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey)
   };
   const previewText = includeBirthInCopy ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
   html += `<div class="text-preview-wrap">

@@ -524,4 +524,83 @@ test('신규 신청 수정 창: 신청자가 넣은 임의 문자열은 화면�
   assert.strictEqual(html.indexOf('<script'), -1);
 });
 
+// ---- 관리자 화면 표시 (주간 표 · 신규 신청 요약 · 배치 문자) ----
+const kitchenWorker = {
+  key: 'k1', name: '김주방', pin: '900101', phone: '', gender: '남', adminLocation: '', locations: [KITCHEN], sortOrder: 0,
+  shifts: [
+    { date: '2026-10-08', day: true, night: false, workType: 'Part', timeFrom: '10:00', timeTo: '15:00' },
+    { date: '2026-10-09', day: true, night: false }
+  ]
+};
+// 다른 근무지인데 예전 주방보조 값이 남아 있는 근무자: 표기가 붙으면 안 된다.
+const otherWorker = {
+  key: 'k2', name: '이일반', pin: '880808', phone: '', gender: '남', adminLocation: '', locations: [OTHER], sortOrder: 1,
+  shifts: [{ date: '2026-10-08', day: true, night: true, workType: 'Part', timeFrom: '10:00', timeTo: '15:00' }]
+};
+const cellOf = (html, cellId) => {
+  const start = html.indexOf('id="' + cellId + '"');
+  assert.ok(start > -1, cellId + ' 칸이 없다');
+  return html.slice(start, html.indexOf('</td>', start));
+};
+const WEEK_TABLE = (shift, label) => "buildWorkerWeekShiftTable(getTwoWeekDates().slice(0, 7), '" + shift + "', '" + label + "', lastRecords, '전체 근무지', true, [])";
+
+test('주간 표: 주방보조 날짜 칸에 근무형태·시간을 적는다', () => {
+  const v = loadAdminView('', [kitchenWorker, otherWorker]);
+  const html = v.W(WEEK_TABLE('day', '주간'));
+  assert.ok(cellOf(html, 'dcell_day_2026-10-08_k1').indexOf('목<div class="kitchen-label">파트 10~15</div>') > -1, cellOf(html, 'dcell_day_2026-10-08_k1'));
+  assert.strictEqual(cellOf(html, 'dcell_day_2026-10-09_k1').indexOf('kitchen-label'), -1, '근무형태 미입력 날짜');
+  assert.strictEqual(cellOf(html, 'dcell_day_2026-10-08_k2').indexOf('kitchen-label'), -1, '다른 근무지');
+  assert.strictEqual(html.split('kitchen-label').length - 1, 1);
+});
+
+test('주간 표: 야간 표에는 적지 않는다', () => {
+  const v = loadAdminView('', [kitchenWorker, otherWorker]);
+  assert.strictEqual(v.W(WEEK_TABLE('night', '야간')).indexOf('kitchen-label'), -1);
+});
+
+test('주간 표: 배치정보 수정 모드가 칸을 다시 그려도 표기가 남는다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const cell = v.els['dcell_day_2026-10-08_k1'];
+  cell.dataset.wchar = '목';
+  v.W("applyInfoCellPendingStyle('2026-10-08', 'day', 'k1')");
+  assert.strictEqual(cell.innerHTML, '목<div class="kitchen-label">파트 10~15</div>');
+
+  v.W("pendingInfoChanges = { k1: { '2026-10-08': { day: { floor: '1층', transport: '' } } } }; applyInfoCellPendingStyle('2026-10-08', 'day', 'k1');");
+  assert.strictEqual(cell.innerHTML, '<span class="mark-circle">목</span><div class="kitchen-label">파트 10~15</div>');
+});
+
+test('신규 신청 요약: 주방보조 날짜는 근무형태·시간으로 적는다', () => {
+  const v = loadAdminView('');
+  const summary = (p) => v.W('pendingShiftSummary_(' + JSON.stringify(p) + ')');
+  assert.strictEqual(summary({ locations: [KITCHEN], shifts: [
+    { date: '2026-10-09', day: true, night: false },
+    { date: '2026-10-08', day: true, night: false, workType: 'Part', timeFrom: '10:00', timeTo: '15:00' }
+  ] }), '10/8(목) 파트 10~15, 10/9(금) 주간', '근무형태 미입력은 주간/야간으로');
+  assert.strictEqual(summary({ locations: [OTHER], shifts: [
+    { date: '2026-10-08', day: true, night: false, location: KITCHEN, workType: 'Full', timeFrom: '22:00', timeTo: '02:00' },
+    { date: '2026-10-09', day: true, night: true, workType: 'Part', timeFrom: '10:00', timeTo: '15:00' }
+  ] }), '10/8(목) 풀 22~2 ' + KITCHEN + ', 10/9(금) 주간·야간', '다른 근무지에 남은 값은 무시');
+});
+
+const kitchenAssign = { date: '2026-10-08', shift: 'day', key: 'k1', name: '김주방', gender: '남', floor: '1층', transport: '', location: KITCHEN };
+const REC_BY_KEY = '{ k1: lastRecords[0] }';
+
+test('배치 문자: 주방보조 주간 배치의 이름 줄 끝에 근무형태·시간을 붙인다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const text = (a, recByKey) => v.W("buildShiftText('2026-10-08', '주간', 1, 0, [" + JSON.stringify(a) + "], [], { k1: '900101' }, false" + (recByKey ? ', ' + recByKey : '') + ')');
+  assert.ok(text(kitchenAssign, REC_BY_KEY).indexOf('남1.김주방_1층 (파트 10~15)') > -1, text(kitchenAssign, REC_BY_KEY));
+  assert.strictEqual(text(Object.assign({}, kitchenAssign, { shift: 'night' }), REC_BY_KEY).indexOf('파트'), -1, '야간 배치');
+  assert.strictEqual(text(Object.assign({}, kitchenAssign, { location: OTHER }), REC_BY_KEY).indexOf('파트'), -1, '다른 근무지로 배치된 기록');
+  assert.strictEqual(text(Object.assign({}, kitchenAssign, { date: '2026-10-09' }), REC_BY_KEY).indexOf('_1층 ('), -1, '근무형태 미입력 날짜');
+  assert.strictEqual(text(Object.assign({}, kitchenAssign, { key: 'gone' }), REC_BY_KEY).indexOf('파트'), -1, '레코드가 없는 배치');
+});
+
+test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const html = v.W("buildShiftBlock('2026-10-08', 'day', [], [" + JSON.stringify(kitchenAssign) + "], null, null, " + REC_BY_KEY + ", { k1: '900101' }, {})");
+  assert.ok(html.indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '배치판 목록');
+  assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth").indexOf('남1.김주방_1층 (파트 10~15)') > -1, '복사 텍스트');
+  assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '생년월일 포함 복사 텍스트');
+});
+
 console.log('\n' + passed + '개 통과');
