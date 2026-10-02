@@ -315,9 +315,13 @@ let lastRecords = [], lastAssignments = [], lastTargets = [];
 
 // 모든 근무자를 "이름(생년월일6자리)", 생년월일이 없으면 "이름(미상)"으로 표시
 function nameWithBirth_(name, pin) {
-  return name + ' (' + (pin ? pin : '미상') + ')';
+  return name + ' ' + (pin ? pin : '미상');
 }
 let currentLocationFilter = '전체';
+// 배치판 복사 텍스트에 생년월일을 넣을지 여부. 켜고 끌 때 배치판을 다시 그리면 펼쳐둔
+// 날짜 카드가 접히므로, 렌더 시점에 두 가지 텍스트를 만들어 두고 textarea 값만 바꾼다.
+let includeBirthInCopy = false;
+let shiftTextCache = {}; // taId -> { withBirth, withoutBirth }
 let adminAuthenticated = false;
 let adminPassword = ''; // 관리자 전용 서버 함수 호출 시 매번 함께 보내 서버에서 재검증
 
@@ -377,7 +381,7 @@ function floorRank(floor, loc) {
 function floorLabel(a) {
   return [a.floor, a.transport].filter(Boolean).join('_');
 }
-function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin) {
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth) {
   const lines = [];
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
   lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
@@ -387,7 +391,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
-    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+    const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
     lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
   });
   lines.push('');
@@ -396,7 +400,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
-    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+    const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
     lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}`);
   });
   return lines.join('\n');
@@ -421,6 +425,14 @@ function copyTextArea(id, msgId) {
     msgEl.textContent = copied ? '복사됨 ✓' : '복사 실패 - 직접 선택 후 복사해주세요';
     setTimeout(() => { msgEl.textContent = ''; }, 2000);
   }
+}
+
+function toggleBirthInCopy(on) {
+  includeBirthInCopy = on;
+  Object.keys(shiftTextCache).forEach(taId => {
+    const el = document.getElementById(taId);
+    if (el) el.value = on ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
+  });
 }
 
 
@@ -572,7 +584,11 @@ function setCellFloor(dateStr, shiftKey, key, floor, transport) {
   const isNew = existing ? existing.isNew : false;
   const isWomenWage = existing ? existing.isWomenWage : false;
   adminRun()
-    .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
+    // 화면을 띄워둔 사이 근무자가 그 날짜 신청을 취소했으면 서버가 false를 돌려준다(setCellLocation과 동일).
+    .withSuccessHandler(function(ok) {
+      if (!ok) alert('그 날짜의 신청이 취소되어 배치하지 못했습니다. 화면을 새로 불러옵니다.');
+      closeFloorMenu(); saveScrollForRefresh(); loadAdmin();
+    })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floorVal, isEducation, isNew, isWomenWage, transportVal, adminPassword);
 }
@@ -1267,10 +1283,12 @@ function saveInfoEditChanges() {
   saveBtn.disabled = true;
   statusEl.textContent = '저장 중...';
   adminRun()
-    .withSuccessHandler(function() {
+    .withSuccessHandler(function(res) {
       pendingInfoChanges = {};
       infoEditMode = false;
       document.body.classList.remove('info-edit-mode');
+      // 화면을 띄워둔 사이 근무자가 신청을 취소한 칸은 서버가 저장하지 않고 건수만 돌려준다.
+      if (res && res.skipped) alert(res.skipped + '건은 근무자가 신청을 취소해 저장하지 못했습니다. 화면을 새로 불러옵니다.');
       saveScrollForRefresh();
       loadAdmin();
     })
@@ -2188,7 +2206,11 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
 
   const taId = `text_${dateStr}_${shift}`;
   const msgId = `copymsg_${dateStr}_${shift}`;
-  const previewText = buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin);
+  shiftTextCache[taId] = {
+    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true),
+    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false)
+  };
+  const previewText = includeBirthInCopy ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
   html += `<div class="text-preview-wrap">
     <textarea id="${taId}" readonly>${previewText}</textarea>
     <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
@@ -2200,9 +2222,11 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
 }
 
 function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, recByKey, keyToPin, keyToWeek1Count, keyToWeek2Count, week1Set) {
+  shiftTextCache = {};
   let html = '<div class="admin-section-title">날짜별 배치판</div>';
   const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
+  html += `<div class="period-caption"><label style="display:inline-flex; align-items:center; gap:6px; margin:0; font-size:12px; font-weight:400; color:inherit; cursor:pointer;"><input type="checkbox" style="width:auto; margin:0;" onchange="toggleBirthInCopy(this.checked)" ${includeBirthInCopy ? 'checked' : ''}> 복사 텍스트에 생년월일 포함</label></div>`;
 
   html += '<div class="assign-board-grid">';
   allDates.forEach(d => {
@@ -2264,7 +2288,10 @@ function batchAssign(dateStr, shift) {
     list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, transport: transport, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
   });
   adminRun()
-    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
+    .withSuccessHandler(function(res) {
+      if (res && res.skipped) alert(res.skipped + '명은 그 날짜 신청이 취소되어 배치하지 못했습니다. 화면을 새로 불러옵니다.');
+      saveScrollForRefresh(); loadAdmin();
+    })
     .withFailureHandler(function(err) { alert('일괄배치 오류: ' + err.message); })
     .batchSaveAssignments(list, adminPassword);
 }
@@ -2273,7 +2300,10 @@ function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWom
   const rec = lastRecords.find(r => r.key === key);
   const name = rec ? rec.name : '';
   adminRun()
-    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
+    .withSuccessHandler(function(ok) {
+      if (!ok) alert('그 날짜의 신청이 취소되어 배치하지 못했습니다. 화면을 새로 불러옵니다.');
+      saveScrollForRefresh(); loadAdmin();
+    })
     .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
     .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, transport || '', adminPassword);
 }

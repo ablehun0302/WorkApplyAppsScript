@@ -817,6 +817,27 @@ function makeLocationLookup_() {
   };
 }
 
+// Data 시트를 한 번만 읽어두고 (key, 날짜, 시프트) → 그 사람이 실제로 그 근무를 신청했는지를
+// 돌려주는 함수를 만든다. 배치 저장이 삭제된 배치를 되살리는 것을 막는 데만 쓴다.
+function makeAppliedLookup_() {
+  const sheet = getDataSheet_();
+  const data = sheet.getDataRange().getValues();
+  const byKey = {};
+  for (let i = 1; i < data.length; i++) {
+    let shifts = [];
+    try { shifts = JSON.parse(data[i][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+    const applied = {};
+    shifts.forEach(function (s) {
+      if (s.day) applied[s.date + '_day'] = true;
+      if (s.night) applied[s.date + '_night'] = true;
+    });
+    byKey[data[i][0]] = applied;
+  }
+  return function (key, dateStr, shift) {
+    return !!(byKey[key] && byKey[key][dateStr + '_' + shift]);
+  };
+}
+
 function getAssignments(adminPw) {
   requireAdmin_(adminPw);
   const sheet = getAssignSheet_();
@@ -846,6 +867,10 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     const sheet = getAssignSheet_();
     const assignKey = makeAssignKey_(date, shift, key);
     const row = findRow_(sheet, 0, assignKey);
+    // 관리자 화면이 열려 있는 동안 근무자가 그 날짜 신청을 취소하면 배치 행은 이미 지워졌는데
+    // 화면에는 그대로 남아 있어, 그 칸을 저장하면 배치가 되살아난다. 새 행을 만드는 경우에만
+    // Data의 신청 내역을 확인해 막는다(기존 행 수정은 지난 근무 기록 수정이라 그대로 허용).
+    if (row === -1 && !makeAppliedLookup_()(key, date, shift)) return false;
     const location = makeLocationLookup_()(key, date) || '';
     const assignGender = isWomenWage ? '여' : gender;
     const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location, transport || ''];
@@ -869,26 +894,35 @@ function batchSaveAssignments(list, adminPw) {
     const keyToRow = {};
     for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
     const locationAt = makeLocationLookup_();
+    const appliedAt = makeAppliedLookup_();
+    const savedItems = [];
+    let skipped = 0;
 
     list.forEach(item => {
       const assignKey = makeAssignKey_(item.date, item.shift, item.key);
+      const row = keyToRow[assignKey];
+      // saveAssignment과 같은 이유로, 신청이 없는 (날짜,시프트)에 배치를 새로 만드는 것만 건너뛴다.
+      if (!row && !appliedAt(item.key, item.date, item.shift)) {
+        skipped++;
+        return;
+      }
       const assignGender = item.isWomenWage ? '여' : item.gender;
       const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, locationAt(item.key, item.date) || '', item.transport || ''];
-      const row = keyToRow[assignKey];
       if (!row) {
         sheet.appendRow(rowData);
         keyToRow[assignKey] = sheet.getLastRow();
       } else {
         sheet.getRange(row, 1, 1, 12).setValues([rowData]);
       }
+      savedItems.push(item);
     });
 
     // logHistory_를 item마다 호출하면 매번 History 시트를 통째로 재조회하므로 배치 버전으로 한 번에 처리
-    batchLogHistory_(list.map(item => ({ key: item.key, date: item.date })));
+    batchLogHistory_(savedItems.map(item => ({ key: item.key, date: item.date })));
+    return { saved: savedItems.length, skipped: skipped };
   } finally {
     lock.releaseLock();
   }
-  return true;
 }
 
 function removeAssignment(date, shift, key, adminPw) {

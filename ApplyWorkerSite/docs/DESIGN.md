@@ -66,6 +66,14 @@ Google Apps Script 기반 웹앱으로, 서버 로직(`Code.gs` + `SheetData.gs`
 
 ## 변경 이력
 
+### 2026-10-02: 신청이 취소된 (날짜,시프트)에 배치를 새로 만들지 않도록 함
+
+관리자 화면은 로드 시점의 `lastRecords`/`lastAssignments` 스냅샷으로 그려지고 자동 갱신이 없다. 그 사이 근무자가 신청을 취소하면 `removeCanceledAssignments_`가 `Assign` 행을 지우지만 화면에는 배치가 그대로 남아 있어, 관리자가 그 칸을 저장하면 `batchSaveAssignments`/`saveAssignment`가 `assignKey`로 행을 못 찾고 `appendRow`해 지워진 배치가 되살아났다(`batchLogHistory_`로 근로일수까지 함께). 되살아난 행은 `Data`에 신청이 없어 근무자가 다시 취소해도 `removeCanceledAssignments_`의 비교 대상에 들어오지 않아 관리자가 직접 지워야 했고, 전체 취소자의 경우 K열 근무지가 빈값이 되어 근무지 탭에서는 보이지 않으면서 문자 미리보기 명단에는 들어갔다.
+
+`makeAppliedLookup_()`(Data F열 `shiftsJSON` → (key, 날짜, 시프트) 신청 여부)을 추가해 두 저장 함수에서 거른다. 검사는 **새 행을 만드는 경우에만** 한다 — 기존 행 덮어쓰기는 지난 근무 기록의 층·교육 플래그 수정 같은 정상 작업이고, 전체 취소로 `Data` 행이 사라진 사람의 과거 배치(2026-09-04(4) 항목에서 일부러 보존한 기록)를 수정할 수 없게 되는 부작용도 막기 위해서다. 신청 여부를 모든 저장에 걸면 그 기록이 읽기 전용이 된다.
+
+`saveAssignment`는 기존 `setShiftLocation`과 같이 `false`를 돌려주고(GAS에서 false 반환은 성공이라 클라이언트가 직접 알린다), `batchSaveAssignments`는 건너뛴 건수를 세어 `{saved, skipped}`를 돌려준다. 관리자 화면 네 곳(`setCellFloor`, `assignPerson`, `batchAssign`, `saveInfoEditChanges`)이 이 값을 받아 안내하고 화면을 새로 불러온다.
+
 ### 2026-09-29: 근무자가 날짜마다 다른 근무지를 신청할 수 있게 함
 
 근무지가 근무자당 하나뿐이라 "월~금은 신세계푸드, 토·일은 BGF" 같은 신청을 표현할 수 없었고, 근무자들이 이를 자유 메시지 칸에 글로 적어 보내면 관리자가 읽고 손으로 처리했다.
