@@ -21,6 +21,7 @@
 - 주석은 한국어로 "왜"를 적고, 기존 코드의 주석 밀도와 어조를 따른다. 요청과 무관한 주변 코드는 고치지 않는다.
 - 테스트 실행: 저장소 루트에서 `node tests/kitchen-work-type.test.js`. 이 PC의 Git Bash에는 `node`가 PATH에 없으므로 `"/c/Program Files/nodejs/node.exe" tests/kitchen-work-type.test.js`로 실행한다.
 - 화면 동작은 자동 테스트가 없다. 각 태스크의 문법 검사(테스트 스크립트)까지 확인하고, 화면 점검은 맨 끝 "배포 후 점검"에서 한 번에 한다.
+  - 실행 중 변경: Task 3~5에서 화면 스크립트를 가짜 DOM으로 돌리는 테스트를 추가했다. 최종 테스트 수는 계획의 18개가 아니라 45개다.
 - 커밋 메시지는 한국어 한 줄 요약이고, 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`를 붙인다.
 
 ## Review Focus
