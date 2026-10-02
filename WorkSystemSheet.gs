@@ -1,12 +1,6 @@
 // ===== 근무 신청 시스템 데이터 계층 (Google Sheets 접근 + CRUD) =====
 
-const LOCATIONS = ['신세계푸드 원남', '델몬트_원남', 'BGF푸드_진천', '물류우리와_금왕', '포장우리와_금왕', '주방보조_전국', '기타'];
-
 const NEW_SHEET_NAME = '근무신청시스템_데이터'; // 시트 생성 시 해당 이름으로 생성
-
-function sanitizeSheetName_(name) {
-  return name.replace(/[\/\\\?\*\[\]:]/g, '_').substring(0, 90);
-}
 
 function getOrCreateSheet_(name, headers, textFormatCols) {
   const ss = getSpreadsheet_();
@@ -350,27 +344,22 @@ function findRow_(sheet, colIndex, value) {
 }
 
 // ---- 신청 관련 ----
-// record: 기존 신청 내역(name+pin 정확히 일치), duplicateName: 이름은 같지만 pin(생년월일)이 다른 동명이인 존재 여부
+// record: 기존 신청 내역(name+pin 정확히 일치)
 function lookupRecord(name, pin) {
   try {
     const sheet = getDataSheet_();
-    const targetName = name.trim();
-    const targetPin = pin.trim();
     const key = makeKey_(name, pin);
     const data = sheet.getDataRange().getValues();
     let record = null;
-    let duplicateName = false;
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === key) {
         const v = data[i];
         // adminLocation은 근무자가 고치는 값이 아니지만, 날짜별 근무지의 기준이 되는 "기본 근무지"가
         // adminLocation → locations[0] 순이므로 신청 화면이 이 값을 알아야 실효 근무지를 맞게 보여준다.
         record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), adminLocation: v[7] || '', message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
-      } else if (data[i][1] === targetName && String(data[i][3]) !== targetPin) {
-        duplicateName = true;
       }
     }
-    return { record: record, duplicateName: duplicateName };
+    return { record: record };
   } catch (e) {
     Logger.log('lookupRecord 실패 원인: ' + e.message);
     throw e;
@@ -432,9 +421,8 @@ function batchSaveRecords(list, adminPw) {
 }
 
 function saveRecord(name, pin, phone, shifts, locations, message, gender, adConsent) {
-  // 동시에 두 요청이 들어오면 둘 다 "기존 행 없음"으로 보고 동일 key로 각각 appendRow 하여
-  // 중복 행이 생길 수 있어(findRow_는 항상 첫 번째 매칭 행만 찾으므로 이후 수정은 그 중 하나만 반영됨),
-  // 찾기~쓰기 구간을 잠가 원자적으로 만든다.
+  // 행을 읽고 다시 쓰는 사이에 다른 요청(관리자의 근무자 추가 등)이 같은 행을 바꾸면 그 변경을
+  // 덮어쓰게 되므로, 찾기~쓰기 구간을 잠가 원자적으로 만든다.
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   const key = makeKey_(name, pin);
@@ -443,14 +431,13 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   try {
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, key);
+    // Data에 등록된 사람(이름+생년월일 일치)만 신청할 수 있다. 화면은 조회 단계에서 막지만
+    // 클라이언트를 우회해 직접 호출될 수 있어 서버에서도 거른다. 새 사람은 관리자의 근무자 추가로만 등록된다.
+    if (row === -1) return false;
     const now = new Date().toISOString();
-    let existingAdminLocation = '';
-    let existingAdminGender = '';
-    if (row !== -1) {
-      existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
-      existingAdminGender = sheet.getRange(row, 11).getValue() || '';
-      oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
-    }
+    const existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
+    const existingAdminGender = sheet.getRange(row, 11).getValue() || '';
+    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
     // 오늘 이전 날짜는 화면에서 수정이 막혀 있지만, 클라이언트를 우회해 saveRecord가 직접 호출될 수도 있으므로
     // 서버에서도 과거 날짜분은 기존 값을 그대로 유지하고 클라이언트가 보낸 값은 무시한다.
     const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
@@ -459,8 +446,7 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
     mergedShifts = pastOldShifts.concat(newShifts);
     const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(mergedShifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
     console.log("pin: %s, phone: %s", pin, phone);
-    if (row === -1) sheet.appendRow(rowData);
-    else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
+    sheet.getRange(row, 1, 1, 12).setValues([rowData]);
   } finally {
     lock.releaseLock();
   }
@@ -715,15 +701,18 @@ function deleteRecord(name, pin) {
   const sheet = getDataSheet_();
   const key = makeKey_(name, pin);
   const row = findRow_(sheet, 0, key);
-  let oldShifts = [];
-  if (row > -1) {
-    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
-    sheet.deleteRow(row);
-  }
   // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하되,
   // 이미 지난 날짜(오늘 이전)의 배치/이력은 saveRecord와 동일하게 그대로 보존한다.
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const pastOldShifts = oldShifts.filter(s => s.date < todayStr);
+  let oldShifts = [];
+  let pastOldShifts = [];
+  if (row > -1) {
+    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
+    pastOldShifts = oldShifts.filter(s => s.date < todayStr);
+    // Data 행을 지우면 같은 key의 Roster/PastMonthly/History 행이 전체신청자 목록에 나오지 않는
+    // 고아로 남으므로, 사람(행)은 남기고 오늘 이후 신청만 비운다.
+    sheet.getRange(row, 5, 1, 2).setValues([[new Date().toISOString(), JSON.stringify(pastOldShifts)]]);
+  }
   removeCanceledAssignments_(key, oldShifts, pastOldShifts);
   return true;
 }
@@ -758,35 +747,6 @@ function getAdminData(adminPw) {
     });
   }
   return records;
-}
-
-// [Deprecated] 근무 장소별로 별도 시트에 데이터 복제 (신청/수정/취소 시마다 전체 재구성)
-// 웹앱에서만 데이터를 조회하고 이 시트들을 직접 보는 곳이 없어 호출부를 모두 제거함. 함수는 참고용으로 남겨둠.
-function rebuildLocationSheets_() {
-  const ss = getSpreadsheet_();
-  const dataSheet = getDataSheet_();
-  const data = dataSheet.getDataRange().getValues();
-  const records = [];
-  for (let i = 1; i < data.length; i++) {
-    const requested = JSON.parse(data[i][6] || '[]');
-    const adminLoc = data[i][7] || '';
-    records.push({
-      name: data[i][1], phone: data[i][2], updatedAt: data[i][4],
-      shiftsJSON: data[i][5],
-      effectiveLocation: adminLoc || (requested[0] || '')
-    });
-  }
-
-  LOCATIONS.forEach(loc => {
-    const sheetName = sanitizeSheetName_(loc);
-    let sheet = ss.getSheetByName(sheetName);
-    if (!sheet) sheet = ss.insertSheet(sheetName);
-    sheet.clear();
-    const matched = records.filter(r => r.effectiveLocation === loc);
-    const rows = [['name', 'phone', 'updatedAt', 'shiftsJSON']]
-      .concat(matched.map(r => [r.name, toTextCell_(r.phone), r.updatedAt, r.shiftsJSON]));
-    sheet.getRange(1, 1, rows.length, 4).setValues(rows);
-  });
 }
 
 // ---- 배치 관련 ----
