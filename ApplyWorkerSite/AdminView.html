@@ -178,7 +178,7 @@
       <label>성별</label>
       <select id="pendingEditGender"></select>
       <label>근무 장소</label>
-      <select id="pendingEditLocation"></select>
+      <select id="pendingEditLocation" onchange="refreshAdminDateList('pe')"></select>
       <label>근무 일정</label>
       <div id="pendingEditDateList"></div>
       <button class="primary" onclick="savePendingEditAndApprove()">수정 내용으로 승인</button>
@@ -1824,6 +1824,65 @@ let adminAddLoadedKey = null; // 폼에 정보를 불러온 기존 근무자의 
 let adminAddAutosaveSnapshot = ''; // 마지막으로 자동저장된 대기목록 스냅샷 (변경 없으면 재저장 스킵)
 let adminAddAutosaveTimer = null;
 
+// ---------- 관리자 창 세 곳의 날짜 줄 (근무자 추가 aa · 일정 수정 ae · 신규 신청 수정 pe) ----------
+// 날짜의 근무지가 주방보조이면 주간/야간 대신 근무형태·시간대를 고른다. 세 창이 같은 줄을 쓰므로
+// 창마다 다른 것(선택 상태, 기본 근무지, 주간/야간 토글 함수)만 여기 적어 둔다.
+let adminEditBaseLocation = '';
+const ADMIN_DATE_SCOPES = {
+  aa: { toggle: 'toggleAdminAddShift', sels: () => adminAddSelections, base: () => getAdminAddLocation()[0] || '' },
+  ae: { toggle: 'toggleAdminEditShift', sels: () => adminEditSelections, base: () => adminEditBaseLocation },
+  pe: { toggle: 'togglePendingEditShift', sels: () => pendingEditSelections, base: () => document.getElementById('pendingEditLocation').value }
+};
+Object.keys(ADMIN_DATE_SCOPES).forEach(scope => {
+  KITCHEN_SCOPES[scope] = { get: key => ADMIN_DATE_SCOPES[scope].sels()[key], redraw: key => redrawAdminDateControls(scope, key) };
+});
+// 한 날짜의 선택 상태 초깃값. location은 근무자가 그 날짜만 따로 고른 근무지로, 주방보조 판정에만
+// 쓰고 저장할 때는 보내지 않는다(서버 mergeShiftExtras_가 되살린다).
+function adminDateSelection(found) {
+  const s = found || {};
+  return { day: !!s.day, night: !!s.night, location: s.location || '', workType: s.workType || '', timeFrom: s.timeFrom || '', timeTo: s.timeTo || '' };
+}
+function adminDateIsKitchen(scope, key) {
+  const s = ADMIN_DATE_SCOPES[scope];
+  return (s.sels()[key].location || s.base()) === KITCHEN_LOCATION;
+}
+function adminDateControlsHtml(scope, key) {
+  const s = ADMIN_DATE_SCOPES[scope];
+  const sel = s.sels()[key];
+  if (adminDateIsKitchen(scope, key)) return kitchenControlsHtml(scope, key, sel, false);
+  return `<div class="shift-btns">
+        <div class="shift-btn ${sel.day?'selected':''}" id="${scope}_day_${key}" onclick="${s.toggle}('${key}','day')">주간</div>
+        <div class="shift-btn ${sel.night?'selected':''}" id="${scope}_night_${key}" onclick="${s.toggle}('${key}','night')">야간</div>
+      </div>`;
+}
+function redrawAdminDateControls(scope, key) {
+  document.getElementById(scope + '_ctl_' + key).innerHTML = adminDateControlsHtml(scope, key);
+}
+// 창에서 근무지 선택이 바뀌면 모든 날짜를 그 근무지에 맞게 바꾸고 다시 그린다.
+function refreshAdminDateList(scope) {
+  const sels = ADMIN_DATE_SCOPES[scope].sels();
+  Object.keys(sels).forEach(key => {
+    applyKitchenMode(sels[key], adminDateIsKitchen(scope, key));
+    redrawAdminDateControls(scope, key);
+  });
+}
+// 서버로 보낼 shifts. workType은 주방보조 날짜에만 남아 있다(applyKitchenMode가 다른 근무지에서는 비운다).
+function adminDateShifts(scope) {
+  return Object.entries(ADMIN_DATE_SCOPES[scope].sels())
+    .filter(([k,v]) => v.day || v.night)
+    .map(([k,v]) => {
+      const item = { date: k, day: v.day, night: v.night };
+      if (v.workType) { item.workType = v.workType; item.timeFrom = v.timeFrom; item.timeTo = v.timeTo; }
+      return item;
+    });
+}
+// 시간이 빠진 주방보조 날짜가 있으면 안내 문구를, 없으면 빈 문자열을 돌려준다.
+function adminDateKitchenError(scope) {
+  const sels = ADMIN_DATE_SCOPES[scope].sels();
+  const badKey = Object.keys(sels).find(k => kitchenTimeError(sels[k]));
+  return badKey ? shortDate(badKey) + ' 주방보조 근무 시간을 선택해주세요. 시작과 종료는 달라야 합니다.' : '';
+}
+
 function openAdminAddOverlay() {
   document.getElementById('adminAddName').value = '';
   document.getElementById('adminAddPin').value = '';
@@ -1910,7 +1969,7 @@ function renderAdminAddLocation(selected) {
   const container = document.getElementById('adminAddLocationRadios');
   container.innerHTML = LOCATIONS.map(loc => {
     const checked = (loc === selected) ? 'checked' : '';
-    return `<label><input type="radio" name="adminAddLocation" value="${loc}" ${checked}>${loc}</label>`;
+    return `<label><input type="radio" name="adminAddLocation" value="${loc}" ${checked} onchange="refreshAdminDateList('aa')">${loc}</label>`;
   }).join('');
 }
 function getAdminAddLocation() {
@@ -1933,20 +1992,14 @@ function buildAdminAddDateList(prefillShifts) {
     }
     const key2 = formatDate(d);
     const dow = DAY_NAMES[d.getDay()];
-    adminAddSelections[key2] = { day: false, night: false };
-    if (prefillShifts) {
-      const found = prefillShifts.find(s => s.date === key2);
-      if (found) { adminAddSelections[key2].day = !!found.day; adminAddSelections[key2].night = !!found.night; }
-    }
+    adminAddSelections[key2] = adminDateSelection(prefillShifts && prefillShifts.find(s => s.date === key2));
+    applyKitchenMode(adminAddSelections[key2], adminDateIsKitchen('aa', key2));
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
-      <div class="shift-btns">
-        <div class="shift-btn ${adminAddSelections[key2].day?'selected':''}" id="aa_day_${key2}" onclick="toggleAdminAddShift('${key2}','day')">주간</div>
-        <div class="shift-btn ${adminAddSelections[key2].night?'selected':''}" id="aa_night_${key2}" onclick="toggleAdminAddShift('${key2}','night')">야간</div>
-      </div>`;
+      <div class="shift-ctl" id="aa_ctl_${key2}">${adminDateControlsHtml('aa', key2)}</div>`;
     container.appendChild(row);
   });
 }
@@ -2024,11 +2077,14 @@ function stageAdminAddRecord() {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요. (모르면 비워두고 나중에 추가 가능)</div>';
     return;
   }
-  const chosen = Object.entries(adminAddSelections)
-    .filter(([k,v]) => v.day || v.night)
-    .map(([k,v]) => ({date:k, day:v.day, night:v.night}));
+  const chosen = adminDateShifts('aa');
   if (chosen.length === 0) {
     msgEl.innerHTML = '<div class="msg err">최소 하나의 근무 날짜를 선택해주세요.</div>';
+    return;
+  }
+  const kitchenErr = adminDateKitchenError('aa');
+  if (kitchenErr) {
+    msgEl.innerHTML = '<div class="msg err">' + kitchenErr + '</div>';
     return;
   }
 
@@ -2078,6 +2134,7 @@ function openAdminEditShifts(key, name) {
   adminEditKey = key;
   const rec = lastRecords.find(r => r.key === key);
   const existingShifts = rec ? (rec.shifts || []) : [];
+  adminEditBaseLocation = rec ? (rec.adminLocation || (rec.locations && rec.locations[0]) || '') : '';
   document.getElementById('adminEditTitle').textContent = name + '님 일정 수정';
   document.getElementById('adminEditMsg').innerHTML = '';
   document.getElementById('adminEditName').value = name || '';
@@ -2098,19 +2155,15 @@ function openAdminEditShifts(key, name) {
     }
     const key2 = formatDate(d);
     const dow = DAY_NAMES[d.getDay()];
-    adminEditSelections[key2] = { day: false, night: false };
-    const found = existingShifts.find(s => s.date === key2);
-    if (found) { adminEditSelections[key2].day = !!found.day; adminEditSelections[key2].night = !!found.night; }
+    adminEditSelections[key2] = adminDateSelection(existingShifts.find(s => s.date === key2));
+    applyKitchenMode(adminEditSelections[key2], adminDateIsKitchen('ae', key2));
 
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
-      <div class="shift-btns">
-        <div class="shift-btn ${adminEditSelections[key2].day?'selected':''}" id="ae_day_${key2}" onclick="toggleAdminEditShift('${key2}','day')">주간</div>
-        <div class="shift-btn ${adminEditSelections[key2].night?'selected':''}" id="ae_night_${key2}" onclick="toggleAdminEditShift('${key2}','night')">야간</div>
-      </div>`;
+      <div class="shift-ctl" id="ae_ctl_${key2}">${adminDateControlsHtml('ae', key2)}</div>`;
     container.appendChild(row);
   });
 
@@ -2130,9 +2183,7 @@ function closeAdminEditOverlay() {
 }
 
 function saveAdminShiftsEdit() {
-  const shifts = Object.entries(adminEditSelections)
-    .filter(([k,v]) => v.day || v.night)
-    .map(([k,v]) => ({ date:k, day:v.day, night:v.night }));
+  const shifts = adminDateShifts('ae');
   const name = document.getElementById('adminEditName').value.trim();
   const phone = document.getElementById('adminEditPhone').value.trim();
   const pin = document.getElementById('adminEditPin').value.trim();
@@ -2144,6 +2195,11 @@ function saveAdminShiftsEdit() {
   }
   if (pin && !/^[0-9]{6}$/.test(pin)) {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
+    return;
+  }
+  const kitchenErr = adminDateKitchenError('ae');
+  if (kitchenErr) {
+    msgEl.innerHTML = '<div class="msg err">' + kitchenErr + '</div>';
     return;
   }
 
@@ -2261,17 +2317,14 @@ function openPendingEditOverlay(idx) {
       container.appendChild(t);
     }
     const key2 = formatDate(d);
-    const found = (p.shifts || []).find(s => s.date === key2) || {};
-    pendingEditSelections[key2] = { day: !!found.day, night: !!found.night };
+    pendingEditSelections[key2] = adminDateSelection((p.shifts || []).find(s => s.date === key2));
+    applyKitchenMode(pendingEditSelections[key2], adminDateIsKitchen('pe', key2));
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${DAY_NAMES[d.getDay()]})</div>
-      <div class="shift-btns">
-        <div class="shift-btn ${found.day?'selected':''}" id="pe_day_${key2}" onclick="togglePendingEditShift('${key2}','day')">주간</div>
-        <div class="shift-btn ${found.night?'selected':''}" id="pe_night_${key2}" onclick="togglePendingEditShift('${key2}','night')">야간</div>
-      </div>`;
+      <div class="shift-ctl" id="pe_ctl_${key2}">${adminDateControlsHtml('pe', key2)}</div>`;
     container.appendChild(row);
   });
 
@@ -2304,15 +2357,18 @@ function savePendingEditAndApprove() {
     msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
     return;
   }
+  const kitchenErr = adminDateKitchenError('pe');
+  if (kitchenErr) {
+    msgEl.innerHTML = '<div class="msg err">' + kitchenErr + '</div>';
+    return;
+  }
   const edits = {
     name: name,
     pin: pin,
     phone: document.getElementById('pendingEditPhone').value.trim(),
     gender: document.getElementById('pendingEditGender').value,
     locations: location ? [location] : [],
-    shifts: Object.entries(pendingEditSelections)
-      .filter(([k,v]) => v.day || v.night)
-      .map(([k,v]) => ({ date:k, day:v.day, night:v.night }))
+    shifts: adminDateShifts('pe')
   };
   adminRun()
     .withSuccessHandler(function(result) {
