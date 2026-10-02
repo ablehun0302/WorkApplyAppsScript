@@ -590,6 +590,11 @@ function setContactInfo(oldKey, newName, phone, newPin, adminPw) {
   const currentPin = sheet.getRange(row, 4).getValue() || '';
   const finalPin = (newPin === undefined || newPin === null) ? currentPin : newPin;
   const newKey = makeKey_(finalName, finalPin || '');
+  // 바꾼 뒤의 이름+생년월일이 다른 행에 이미 있으면 key가 같은 행이 2개가 되고, 이후 조회/저장은
+  // 첫 행만 찾아 나머지 행이 갱신되지 않으므로 아무것도 쓰지 않고 거부한다.
+  if (newKey !== oldKey && findRow_(sheet, 0, newKey) !== -1) {
+    throw new Error('같은 이름·생년월일의 근무자가 이미 등록되어 있어 변경할 수 없습니다.');
+  }
 
   sheet.getRange(row, 2).setValue(finalName);
   sheet.getRange(row, 3).setValue(toTextCell_(finalPhone || ''));
