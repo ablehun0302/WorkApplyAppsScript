@@ -125,6 +125,7 @@
         <label>이름</label>
         <input type="text" id="adminAddName" list="adminAddNameList" placeholder="홍길동">
         <datalist id="adminAddNameList"></datalist>
+        <div id="adminAddNameChoices"></div>
         <label>생년월일 6자리</label>
         <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
         <label>연락처</label>
@@ -1795,6 +1796,7 @@ const autosaveTerm = 60;
 let adminAddSelections = {};
 
 let adminAddPending = [];
+let adminAddLoadedKey = null; // 폼에 정보를 불러온 기존 근무자의 key (불러온 사람이 없으면 null)
 
 let adminAddAutosaveSnapshot = ''; // 마지막으로 자동저장된 대기목록 스냅샷 (변경 없으면 재저장 스킵)
 let adminAddAutosaveTimer = null;
@@ -1804,6 +1806,8 @@ function openAdminAddOverlay() {
   document.getElementById('adminAddPin').value = '';
   document.getElementById('adminAddPhone').value = '';
   document.getElementById('adminAddMsg').innerHTML = '';
+  document.getElementById('adminAddNameChoices').innerHTML = '';
+  adminAddLoadedKey = null;
   adminAddPending = [];
   adminAddAutosaveSnapshot = '';
   document.getElementById('adminAddSubmitAllBtn').disabled = false;
@@ -1929,25 +1933,53 @@ function toggleAdminAddShift(key, type) {
   document.getElementById('aa_' + type + '_' + key).classList.toggle('selected', adminAddSelections[key][type]);
 }
 
+// 기존 근무자(key)의 인적사항·일정을 근무자 추가 폼에 불러온다.
+function loadAdminAddRecord(key) {
+  const match = lastRecords.find(r => r.key === key);
+  adminAddLoadedKey = key;
+  document.getElementById('adminAddPhone').value = match.phone || '';
+  document.getElementById('adminAddPin').value = match.pin || '';
+  renderAdminAddGender(match.adminGender || match.gender || '');
+  const loc = match.adminLocation || (match.locations && match.locations[0]) || '';
+  renderAdminAddLocation(loc);
+  buildAdminAddDateList(match.shifts || []);
+  document.getElementById('adminAddMsg').innerHTML = '<div class="msg info">기존 근무자 정보를 불러왔습니다. 저장하면 이 사람의 일정이 갱신됩니다.</div>';
+}
+
+// 폼에서 생년월일을 뺀 인적사항·일정을 비운다.
+function clearAdminAddLoaded(msgHtml) {
+  adminAddLoadedKey = null;
+  document.getElementById('adminAddPhone').value = '';
+  renderAdminAddGender('');
+  renderAdminAddLocation('');
+  buildAdminAddDateList(null);
+  document.getElementById('adminAddMsg').innerHTML = msgHtml;
+}
+
+// 사람은 이름+생년월일로 구분되므로(동명이인), 이름만으로 한 명이 정해질 때만 자동으로 불러오고
+// 여러 명이면 누구를 불러올지 고르게 한다. 생년월일을 고치면 그 이름+생년월일의 사람으로 다시 찾는다.
 document.addEventListener('input', function(e) {
   if (e.target && e.target.id === 'adminAddName') {
     const val = e.target.value.trim();
-    const match = lastRecords.find(r => r.name === val);
-    if (match) {
-      document.getElementById('adminAddPhone').value = match.phone || '';
-      document.getElementById('adminAddPin').value = match.pin || '';
-      renderAdminAddGender(match.adminGender || match.gender || '');
-      const loc = match.adminLocation || (match.locations && match.locations[0]) || '';
-      renderAdminAddLocation(loc);
-      buildAdminAddDateList(match.shifts || []);
-      document.getElementById('adminAddMsg').innerHTML = '<div class="msg info">기존 근무자 정보를 불러왔습니다. 저장하면 이 사람의 일정이 갱신됩니다.</div>';
+    const matches = lastRecords.filter(r => r.name === val);
+    document.getElementById('adminAddNameChoices').innerHTML = matches.length < 2 ? '' :
+      '<div class="period-caption">같은 이름의 근무자가 ' + matches.length + '명 있습니다. 불러올 사람을 선택하세요. (새 근무자면 그대로 입력)</div>' +
+      matches.map(r => `<button class="secondary" style="width:auto; padding:6px 12px; margin:0 6px 6px 0;" onclick="loadAdminAddRecord('${r.key}')">${nameWithBirth_(r.name, r.pin)}</button>`).join('');
+    if (matches.length === 1) {
+      loadAdminAddRecord(matches[0].key);
     } else {
-      document.getElementById('adminAddPhone').value = '';
       document.getElementById('adminAddPin').value = '';
-      renderAdminAddGender('');
-      renderAdminAddLocation('');
-      buildAdminAddDateList(null);
-      document.getElementById('adminAddMsg').innerHTML = '';
+      clearAdminAddLoaded('');
+    }
+  } else if (e.target && e.target.id === 'adminAddPin') {
+    const name = document.getElementById('adminAddName').value.trim();
+    const pin = e.target.value.trim();
+    const match = lastRecords.find(r => r.name === name && String(r.pin || '') === pin);
+    if (match) {
+      loadAdminAddRecord(match.key);
+    } else if (adminAddLoadedKey) {
+      // 다른 사람의 정보가 채워진 채 생년월일만 바뀌면 그 정보가 새 사람에게 저장되므로 비운다.
+      clearAdminAddLoaded('<div class="msg info">등록되지 않은 생년월일입니다. 새 근무자로 등록됩니다.</div>');
     }
   }
 });
@@ -1984,6 +2016,8 @@ function stageAdminAddRecord() {
   document.getElementById('adminAddName').value = '';
   document.getElementById('adminAddPin').value = '';
   document.getElementById('adminAddPhone').value = '';
+  document.getElementById('adminAddNameChoices').innerHTML = '';
+  adminAddLoadedKey = null;
   renderAdminAddGender('');
   renderAdminAddLocation('');
   buildAdminAddDateList(null);
