@@ -85,9 +85,13 @@ function renderAdminLocationNotice() {
 function onBaseLocationChange() {
   const base = currentBaseLocation();
   Object.keys(selections).forEach(key => {
-    if (selections[key].location) return;
-    const sel = document.getElementById('loc-' + key);
-    if (sel) setSelectValue(sel, base);
+    if (!selections[key].location) {
+      const sel = document.getElementById('loc-' + key);
+      if (sel) setSelectValue(sel, base);
+    }
+    // 기본 근무장소가 주방보조로(또는 주방보조에서) 바뀌면 그 값을 따르는 날짜 줄의 모양도 바뀐다.
+    applyKitchenMode(selections[key], isKitchenDate(key));
+    redrawDateControls(key);
   });
 }
 // 근무지 목록이 바뀌어 저장된 값이 LOCATIONS에 없을 수 있다. 그대로 두면 브라우저가 첫 항목을
@@ -116,6 +120,31 @@ function getSelectedGender() {
 }
 
 // ---------- 근로자 신청 화면 ----------
+// 그 날짜의 근무지가 주방보조인지. 날짜별로 따로 고른 근무지가 기본 근무장소보다 우선한다.
+function isKitchenDate(key) {
+  return (selections[key].location || currentBaseLocation()) === KITCHEN_LOCATION;
+}
+// 날짜 줄의 버튼 영역. 주방보조 날짜는 주간/야간 대신 근무형태와 시간대를 고른다.
+function dateControlsHtml(key) {
+  const sel = selections[key];
+  const isPast = key < formatDate(new Date());
+  if (isKitchenDate(key)) return kitchenControlsHtml('w', key, sel, isPast);
+  const dayBtnClass = 'shift-btn' + (sel.day?' selected':'') + (isPast?' disabled':'');
+  const nightBtnClass = 'shift-btn' + (sel.night?' selected':'') + (isPast?' disabled':'');
+  const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
+  const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
+  return `<div class="shift-btns">
+        <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
+        <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
+      </div>`;
+}
+// 신청 여부나 근무지가 바뀐 날짜 줄을 다시 그린다. 신청이 모두 해제되면 syncDateLocationVisibility가
+// 날짜별 근무지 지정을 지우므로, 그 결과(주방보조 여부)가 반영되도록 버튼 영역을 나중에 그린다.
+function redrawDateControls(key) {
+  syncDateLocationVisibility(key);
+  document.getElementById('ctl-' + key).innerHTML = dateControlsHtml(key);
+}
+KITCHEN_SCOPES.w = { get: key => selections[key], redraw: redrawDateControls };
 function buildDateList(prefill) {
   const container = document.getElementById('dateListContainer');
   container.innerHTML = '';
@@ -132,28 +161,23 @@ function buildDateList(prefill) {
     }
     const key = formatDate(d);
     const dow = DAY_NAMES[d.getDay()];
-    selections[key] = { day: false, night: false, location: '' };
+    selections[key] = { day: false, night: false, location: '', workType: '', timeFrom: '', timeTo: '' };
     if (prefill) {
       const found = prefill.find(s => s.date === key);
-      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; selections[key].location = found.location || ''; }
+      if (found) { selections[key].day = !!found.day; selections[key].night = !!found.night; selections[key].location = found.location || ''; selections[key].workType = found.workType || ''; selections[key].timeFrom = found.timeFrom || ''; selections[key].timeTo = found.timeTo || ''; }
     }
+    // 주간/야간으로 저장돼 있던 주방보조 날짜는 파트타임·시간 미입력 상태로 불러온다.
+    applyKitchenMode(selections[key], isKitchenDate(key));
     const row = document.createElement('div');
     row.className = 'date-row';
     const isWeekend = (d.getDay()===0 || d.getDay()===6);
     const isPast = key < todayKey;
-    const dayBtnClass = 'shift-btn' + (selections[key].day?' selected':'') + (isPast?' disabled':'');
-    const nightBtnClass = 'shift-btn' + (selections[key].night?' selected':'') + (isPast?' disabled':'');
-    const dayOnclick = isPast ? '' : ` onclick="toggleShift('${key}','day')"`;
-    const nightOnclick = isPast ? '' : ` onclick="toggleShift('${key}','night')"`;
     const hasShift = selections[key].day || selections[key].night;
     const locOptions = LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
     row.innerHTML = `
       <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${dow})</div>
       <select class="date-loc" id="loc-${key}" ${isPast?'disabled':''} onchange="setDateLocation('${key}', this.value)" style="display:${hasShift?'':'none'};">${locOptions}</select>
-      <div class="shift-btns">
-        <div class="${dayBtnClass}" id="day-${key}"${dayOnclick}>주간</div>
-        <div class="${nightBtnClass}" id="night-${key}"${nightOnclick}>야간</div>
-      </div>`;
+      <div class="shift-ctl" id="ctl-${key}">${dateControlsHtml(key)}</div>`;
     container.appendChild(row);
     setSelectValue(document.getElementById('loc-' + key), selections[key].location || currentBaseLocation());
   });
@@ -181,6 +205,8 @@ function syncDateLocationVisibility(key) {
 // 기본 근무장소와 같은 값을 고르는 것은 "그 날짜만 다르게"를 해제하는 뜻으로 본다.
 function setDateLocation(key, value) {
   selections[key].location = (value === currentBaseLocation()) ? '' : value;
+  applyKitchenMode(selections[key], isKitchenDate(key));
+  redrawDateControls(key);
 }
 
 function lookupRecord() {
@@ -248,10 +274,20 @@ function submitApplication() {
     const item = { date: k, day: v.day, night: v.night };
     // 기본 근무장소와 같으면 저장하지 않는다. 그래야 나중에 기본 근무장소가 바뀔 때 따라간다.
     if (v.location && v.location !== base) item.location = v.location;
+    // workType은 주방보조 날짜에만 남아 있다(applyKitchenMode가 다른 근무지에서는 비운다).
+    if (v.workType) { item.workType = v.workType; item.timeFrom = v.timeFrom; item.timeTo = v.timeTo; }
     return item;
   });
   if (chosen.length === 0) {
     resultMsg.innerHTML = '<div class="msg err">최소 하나의 날짜/시간대를 선택해주세요.</div>';
+    return;
+  }
+  // 지난 날짜는 고칠 수 없고 서버가 기존 값을 유지하므로 검사하지 않는다.
+  const todayKey = formatDate(new Date());
+  const badKey = Object.keys(selections).find(k => k >= todayKey && kitchenTimeError(selections[k]));
+  if (badKey) {
+    const bd = new Date(badKey + 'T00:00:00');
+    resultMsg.innerHTML = '<div class="msg err">' + (bd.getMonth()+1) + '/' + bd.getDate() + '(' + DAY_NAMES[bd.getDay()] + ') 주방보조 근무 시간을 선택해주세요. 시작과 종료는 달라야 합니다.</div>';
     return;
   }
   if (isNewApplicant && !phone) {
