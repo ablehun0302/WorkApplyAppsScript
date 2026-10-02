@@ -18,6 +18,9 @@ vm.runInContext(sharedHtml.match(/<script>([\s\S]*)<\/script>/)[1], shared);
 // const로 선언된 값은 컨텍스트 객체의 속성이 아니라서 식으로 꺼낸다.
 const S = (expr) => vm.runInContext(expr, shared);
 
+const server = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(root, 'WorkSystemSheet.gs'), 'utf8'), server);
+
 // vm 안에서 만든 객체는 프로토타입이 달라 deepStrictEqual이 실패하므로 JSON으로 비교한다.
 const same = (actual, expected, msg) => assert.strictEqual(JSON.stringify(actual), JSON.stringify(expected), msg);
 
@@ -157,6 +160,32 @@ test('toggleKitchenType·setKitchenTime', () => {
   shared.toggleKitchenType('t', '2026-10-05', 'Full');
   same(sel, { day: false, night: false, workType: '', timeFrom: '', timeTo: '' }, '다시 누르면 취소');
   assert.strictEqual(shared.redrawn.length, 3);
+});
+
+test('mergeShiftExtras_: 새 값에 없는 근무형태·시간·근무지를 되살린다', () => {
+  const merge = server.mergeShiftExtras_;
+  const old = [
+    { date: '2026-10-05', day: true, night: false, workType: 'Part', timeFrom: '10:00', timeTo: '15:00', location: '주방보조_전국' },
+    { date: '2026-10-06', day: true, night: false, location: 'BGF푸드_진천' }
+  ];
+  same(merge(old, [{ date: '2026-10-05', day: true, night: false }, { date: '2026-10-06', day: true, night: true }]), [
+    { date: '2026-10-05', day: true, night: false, location: '주방보조_전국', workType: 'Part', timeFrom: '10:00', timeTo: '15:00' },
+    { date: '2026-10-06', day: true, night: true, location: 'BGF푸드_진천' }
+  ]);
+});
+
+test('mergeShiftExtras_: 새 값에 근무형태가 있으면 새 값을 쓴다', () => {
+  const old = [{ date: '2026-10-05', day: true, night: false, workType: 'Part', timeFrom: '10:00', timeTo: '15:00' }];
+  same(server.mergeShiftExtras_(old, [{ date: '2026-10-05', day: true, night: false, workType: 'Full', timeFrom: '22:00', timeTo: '02:00' }]),
+    [{ date: '2026-10-05', day: true, night: false, workType: 'Full', timeFrom: '22:00', timeTo: '02:00' }]);
+});
+
+test('mergeShiftExtras_: 기존에 없던 날짜·빠진 날짜·빈 입력', () => {
+  const merge = server.mergeShiftExtras_;
+  const old = [{ date: '2026-10-05', day: true, night: false, workType: 'Part', timeFrom: '10:00', timeTo: '15:00' }];
+  same(merge(old, [{ date: '2026-10-07', day: true, night: false }]), [{ date: '2026-10-07', day: true, night: false }], '취소된 날짜는 되살아나지 않는다');
+  same(merge(null, [{ date: '2026-10-07', day: true, night: false }]), [{ date: '2026-10-07', day: true, night: false }]);
+  same(merge(old, null), []);
 });
 
 console.log('\n' + passed + '개 통과');

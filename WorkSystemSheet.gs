@@ -416,7 +416,7 @@ function batchSaveRecords(list, adminPw) {
       }
       const rowData = [
         key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
-        JSON.stringify(mergeShiftLocations_(existingShifts, item.shifts || [])), JSON.stringify(item.locations || []),
+        JSON.stringify(mergeShiftExtras_(existingShifts, item.shifts || [])), JSON.stringify(item.locations || []),
         existingAdminLocation, '', item.gender || '', existingAdminGender, existingAdConsent
       ];
       if (row) {
@@ -543,8 +543,8 @@ function approvePending(key, edits, version, adminPw) {
       phone = String(edits.phone || '').trim();
       gender = edits.gender || '';
       locations = edits.locations || [];
-      // 관리자 화면은 shifts를 {date, day, night}로만 보내므로 근무자가 고른 날짜별 근무지를 되살린다.
-      shifts = mergeShiftLocations_(shifts, edits.shifts || []);
+      // 관리자 화면은 날짜별 근무지를 보내지 않으므로 근무자가 고른 값을 되살린다.
+      shifts = mergeShiftExtras_(shifts, edits.shifts || []);
     }
     newKey = makeKey_(name, pin);
 
@@ -690,16 +690,23 @@ function batchSaveRoster(list, adminPw) {
   return true;
 }
 
-// 관리자 화면들은 날짜별 근무지를 다루지 않고 shifts를 {date, day, night}로만 다시 만들어 덮어쓴다.
-// 그대로 저장하면 근무자가 지정해둔 날짜별 location이 지워지므로, 같은 날짜의 기존 값을 되살려준다.
-function mergeShiftLocations_(oldShifts, newShifts) {
-  const locByDate = {};
-  (oldShifts || []).forEach(function (s) {
-    if (s.location) locByDate[s.date] = s.location;
-  });
+// 관리자 화면들은 날짜별 근무지를 다루지 않고, 주방보조가 아닌 날짜는 shifts를 {date, day, night}로만
+// 다시 만들어 덮어쓴다. 그대로 저장하면 근무자가 지정해둔 날짜별 location과 주방보조 근무형태·시간
+// (workType, timeFrom, timeTo)이 지워지므로, 새 값에 없는 것은 같은 날짜의 기존 값을 되살려준다.
+function mergeShiftExtras_(oldShifts, newShifts) {
+  const oldByDate = {};
+  (oldShifts || []).forEach(function (s) { oldByDate[s.date] = s; });
   return (newShifts || []).map(function (s) {
-    if (s.location || !locByDate[s.date]) return s;
-    return Object.assign({}, s, { location: locByDate[s.date] });
+    const old = oldByDate[s.date];
+    if (!old) return s;
+    const merged = Object.assign({}, s);
+    if (!merged.location && old.location) merged.location = old.location;
+    if (!merged.workType && old.workType) {
+      merged.workType = old.workType;
+      merged.timeFrom = old.timeFrom;
+      merged.timeTo = old.timeTo;
+    }
+    return merged;
   });
 }
 
@@ -712,7 +719,7 @@ function adminUpdateShifts(key, shifts, adminPw) {
   if (row === -1) return false;
   let oldShifts = [];
   try { oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
-  sheet.getRange(row, 6).setValue(JSON.stringify(mergeShiftLocations_(oldShifts, shifts)));
+  sheet.getRange(row, 6).setValue(JSON.stringify(mergeShiftExtras_(oldShifts, shifts)));
   return true;
 }
 
