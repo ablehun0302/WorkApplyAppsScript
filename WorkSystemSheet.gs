@@ -299,9 +299,19 @@ function cleanupDefaultSheets_(ss) {
   });
 }
 
+const DATA_HEADERS = ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent'];
+
 function getDataSheet_() {
-  const sheet = getOrCreateSheet_('Data', ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent']);
+  const sheet = getOrCreateSheet_('Data', DATA_HEADERS);
   sheet.getRange('D:D').setNumberFormat('@'); // pin 앞자리 0 유실 방지 (기존 시트에도 매번 적용)
+  return sheet;
+}
+
+// Data에 없는 신규 근무자의 신청은 관리자가 승인하기 전까지 이 시트에 쌓인다.
+// 컬럼을 Data와 똑같이 두어 승인할 때 행을 그대로 옮긴다(adminLocation·adminGender 칸은 비워 둔다).
+function getPendingSheet_() {
+  const sheet = getOrCreateSheet_('신규데이터', DATA_HEADERS);
+  sheet.getRange('D:D').setNumberFormat('@');
   return sheet;
 }
 
@@ -344,22 +354,32 @@ function findRow_(sheet, colIndex, value) {
 }
 
 // ---- 신청 관련 ----
+function lookupRecordInSheet_(sheet, key) {
+  const data = sheet.getDataRange().getValues();
+  let record = null;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) {
+      const v = data[i];
+      // adminLocation은 근무자가 고치는 값이 아니지만, 날짜별 근무지의 기준이 되는 "기본 근무지"가
+      // adminLocation → locations[0] 순이므로 신청 화면이 이 값을 알아야 실효 근무지를 맞게 보여준다.
+      record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), adminLocation: v[7] || '', message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
+    }
+  }
+  return record;
+}
+
 // record: 기존 신청 내역(name+pin 정확히 일치)
+// pending: Data에는 없고 신규데이터 시트에 승인 대기 중인 신청이면 true
 function lookupRecord(name, pin) {
   try {
-    const sheet = getDataSheet_();
     const key = makeKey_(name, pin);
-    const data = sheet.getDataRange().getValues();
-    let record = null;
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === key) {
-        const v = data[i];
-        // adminLocation은 근무자가 고치는 값이 아니지만, 날짜별 근무지의 기준이 되는 "기본 근무지"가
-        // adminLocation → locations[0] 순이므로 신청 화면이 이 값을 알아야 실효 근무지를 맞게 보여준다.
-        record = { name: v[1], phone: v[2], shifts: JSON.parse(v[5] || '[]'), locations: JSON.parse(v[6] || '[]'), adminLocation: v[7] || '', message: v[8] || '', gender: v[9] || '', adConsent: v[11] || '' };
-      }
+    let record = lookupRecordInSheet_(getDataSheet_(), key);
+    let pending = false;
+    if (!record) {
+      record = lookupRecordInSheet_(getPendingSheet_(), key);
+      pending = !!record;
     }
-    return { record: record };
+    return { record: record, pending: pending };
   } catch (e) {
     Logger.log('lookupRecord 실패 원인: ' + e.message);
     throw e;
@@ -431,9 +451,12 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   try {
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, key);
-    // Data에 등록된 사람(이름+생년월일 일치)만 신청할 수 있다. 화면은 조회 단계에서 막지만
-    // 클라이언트를 우회해 직접 호출될 수 있어 서버에서도 거른다. 새 사람은 관리자의 근무자 추가로만 등록된다.
-    if (row === -1) return false;
+    // Data에 등록된 사람(이름+생년월일 일치)의 신청만 Data에 바로 반영한다. 새 사람의 신청은
+    // 신규데이터 시트에 두었다가 관리자가 승인하면 Data로 옮긴다.
+    if (row === -1) {
+      savePendingRecord_(key, name, pin, phone, shifts, locations, message, gender, adConsent);
+      return 'pending';
+    }
     const now = new Date().toISOString();
     const existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
     const existingAdminGender = sheet.getRange(row, 11).getValue() || '';
@@ -452,6 +475,124 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   }
   // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
   removeCanceledAssignments_(key, oldShifts, mergedShifts);
+  return true;
+}
+
+// ---- 신규 근무자 신청(승인 대기) ----
+// saveRecord의 잠금 안에서 호출된다. 같은 사람이 승인 전에 다시 저장하면 그 행을 덮어쓴다.
+function savePendingRecord_(key, name, pin, phone, shifts, locations, message, gender, adConsent) {
+  const sheet = getPendingSheet_();
+  const row = findRow_(sheet, 0, key);
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const newShifts = (shifts || []).filter(s => s.date >= todayStr);
+  const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), new Date().toISOString(), JSON.stringify(newShifts), JSON.stringify(locations || []), '', (message || '').trim(), gender || '', '', adConsent || ''];
+  if (row === -1) sheet.appendRow(rowData);
+  else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
+}
+
+function getPendingRecords(adminPw) {
+  requireAdmin_(adminPw);
+  const data = getPendingSheet_().getDataRange().getValues();
+  const records = [];
+  for (let i = 1; i < data.length; i++) {
+    records.push({
+      key: data[i][0],
+      name: data[i][1],
+      phone: data[i][2],
+      pin: data[i][3] || '',
+      // 관리자가 본 신청과 승인하는 신청이 같은 내용인지 approvePending이 대조하는 값(저장 시각)
+      version: String(data[i][4] || ''),
+      shifts: JSON.parse(data[i][5] || '[]'),
+      locations: JSON.parse(data[i][6] || '[]'),
+      message: data[i][8] || '',
+      gender: data[i][9] || ''
+    });
+  }
+  return records;
+}
+
+// 승인: 신규데이터의 신청을 Data로 옮기고 신규데이터에서는 지운다.
+// edits({name, pin, phone, gender, locations, shifts})를 넘기면 관리자가 고친 값으로 등록한다(수정 후 승인).
+// 그 사이 다른 관리자가 이미 처리해 대기 행이 없으면 false를 돌려준다.
+// 관리자 화면은 자동 갱신이 없어, 목록을 불러온 뒤 신청자가 내용을 고쳤을 수 있다. 그대로 승인하면
+// 관리자가 보지 못한 내용이 등록되고, 수정 후 승인이면 신청자가 고친 내용이 덮어써지므로
+// version(목록을 불러올 때 받은 값)이 달라졌으면 아무것도 쓰지 않고 'changed'를 돌려준다.
+function approvePending(key, edits, version, adminPw) {
+  requireAdmin_(adminPw);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let newKey = key;
+  let oldShifts = [];
+  let mergedShifts = [];
+  try {
+    const pendingSheet = getPendingSheet_();
+    const pendingRow = findRow_(pendingSheet, 0, key);
+    if (pendingRow === -1) return false;
+    const p = pendingSheet.getRange(pendingRow, 1, 1, 12).getValues()[0];
+    if (String(p[4] || '') !== version) return 'changed';
+    let name = String(p[1]);
+    let pin = String(p[3] || '');
+    let phone = String(p[2] || '');
+    let gender = p[9] || '';
+    let locations = JSON.parse(p[6] || '[]');
+    let shifts = JSON.parse(p[5] || '[]');
+    if (edits) {
+      name = String(edits.name || '').trim();
+      if (!name) throw new Error('이름을 입력해주세요.');
+      pin = String(edits.pin || '').trim();
+      phone = String(edits.phone || '').trim();
+      gender = edits.gender || '';
+      locations = edits.locations || [];
+      // 관리자 화면은 shifts를 {date, day, night}로만 보내므로 근무자가 고른 날짜별 근무지를 되살린다.
+      shifts = mergeShiftLocations_(shifts, edits.shifts || []);
+    }
+    newKey = makeKey_(name, pin);
+
+    const sheet = getDataSheet_();
+    const row = findRow_(sheet, 0, newKey);
+    let existingAdminLocation = '';
+    let existingAdminGender = '';
+    mergedShifts = shifts;
+    if (row > -1) {
+      // 대기 중에 관리자가 같은 사람을 근무자 추가로 이미 등록한 경우다. 행을 새로 만들면 같은 key가
+      // 2개가 되므로 그 행에 신청을 반영한다 — 근무자가 직접 저장했을 때(saveRecord)와 같은 규칙이다.
+      const existing = sheet.getRange(row, 1, 1, 12).getValues()[0];
+      existingAdminLocation = existing[7] || '';
+      existingAdminGender = existing[10] || '';
+      oldShifts = JSON.parse(existing[5] || '[]');
+      const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      mergedShifts = oldShifts.filter(s => s.date < todayStr).concat(shifts.filter(s => s.date >= todayStr));
+    }
+    const rowData = [newKey, name, toTextCell_(phone), toTextCell_(pin), new Date().toISOString(), JSON.stringify(mergedShifts), JSON.stringify(locations), existingAdminLocation, p[8] || '', gender, existingAdminGender, p[11] || ''];
+    if (row === -1) sheet.appendRow(rowData);
+    else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
+    pendingSheet.deleteRow(pendingRow);
+  } finally {
+    lock.releaseLock();
+  }
+  removeCanceledAssignments_(newKey, oldShifts, mergedShifts);
+  return true;
+}
+
+// 거절: 신규데이터에서 신청을 지운다. Data에는 아무것도 남지 않는다.
+function rejectPending(key, adminPw) {
+  requireAdmin_(adminPw);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return deletePendingRow_(key);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 찾은 행 번호로 지우는 사이 다른 요청(승인·거절)이 앞의 행을 지우면 엉뚱한 신청이 지워지므로,
+// 호출하는 쪽에서 잠금을 잡은 채로 불러야 한다.
+function deletePendingRow_(key) {
+  const sheet = getPendingSheet_();
+  const row = findRow_(sheet, 0, key);
+  if (row === -1) return false;
+  sheet.deleteRow(row);
   return true;
 }
 
@@ -703,20 +844,31 @@ function updateAssignLocation_(key, date, location) {
 }
 
 function deleteRecord(name, pin) {
-  const sheet = getDataSheet_();
   const key = makeKey_(name, pin);
-  const row = findRow_(sheet, 0, key);
   // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하되,
   // 이미 지난 날짜(오늘 이전)의 배치/이력은 saveRecord와 동일하게 그대로 보존한다.
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   let oldShifts = [];
   let pastOldShifts = [];
-  if (row > -1) {
-    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
-    pastOldShifts = oldShifts.filter(s => s.date < todayStr);
-    // Data 행을 지우면 같은 key의 Roster/PastMonthly/History 행이 전체신청자 목록에 나오지 않는
-    // 고아로 남으므로, 사람(행)은 남기고 오늘 이후 신청만 비운다.
-    sheet.getRange(row, 5, 1, 2).setValues([[new Date().toISOString(), JSON.stringify(pastOldShifts)]]);
+  // "Data에 없음"을 확인한 뒤 신규데이터 행을 지우기 전에 관리자의 승인이 끼어들면, 신청이 Data로
+  // 옮겨진 채 남아 취소했다고 안내받은 근무자가 그대로 배치 대상이 된다. 찾기~쓰기를 잠가 막는다.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getDataSheet_();
+    const row = findRow_(sheet, 0, key);
+    if (row > -1) {
+      oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
+      pastOldShifts = oldShifts.filter(s => s.date < todayStr);
+      // Data 행을 지우면 같은 key의 Roster/PastMonthly/History 행이 전체신청자 목록에 나오지 않는
+      // 고아로 남으므로, 사람(행)은 남기고 오늘 이후 신청만 비운다.
+      sheet.getRange(row, 5, 1, 2).setValues([[new Date().toISOString(), JSON.stringify(pastOldShifts)]]);
+    } else {
+      // 승인 전인 신규 신청은 다른 시트에 딸린 행이 없으므로 행째 지운다.
+      deletePendingRow_(key);
+    }
+  } finally {
+    lock.releaseLock();
   }
   removeCanceledAssignments_(key, oldShifts, pastOldShifts);
   return true;

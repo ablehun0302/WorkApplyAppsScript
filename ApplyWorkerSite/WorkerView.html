@@ -17,8 +17,8 @@
       <input type="text" id="name" placeholder="홍길동">
       <label>생년월일 6자리</label>
       <input type="number" id="pin" placeholder="900101" maxlength="6" inputmode="numeric">
-      <label>연락처 (등록된 번호)</label>
-      <input type="tel" id="phone" placeholder="조회하면 표시됩니다" disabled>
+      <label>연락처 (신규 신청 시 필요)</label>
+      <input type="tel" id="phone" placeholder="010-0000-0000">
       <div id="lookupMsg"></div>
       <button class="primary" id="lookupBtn" onclick="lookupRecord()">조회 / 시작하기</button>
       <button class="secondary" id="resetIdentityBtn" onclick="resetIdentity()" style="display:none;">다른 사람으로 조회 / 처음으로</button>
@@ -53,7 +53,8 @@
 restoreScrollImmediate();
 let selections = {};
 let currentName = '', currentPin = '';
-const NOT_REGISTERED_MSG = '등록된 근무자 정보를 찾을 수 없어 신청할 수 없습니다. 이름과 생년월일을 다시 확인하시고, 맞게 입력했다면 관리자에게 문의해 주세요.';
+// Data에 아직 없는 신규 근무자(승인 대기 중 포함). 이 사람의 신청은 신규데이터 시트에 저장되고 관리자 승인 후 확정된다.
+let isNewApplicant = false;
 function renderLocationCheckboxes(selectedLocations) {
   const container = document.getElementById('locationCheckboxes');
   container.innerHTML = LOCATIONS.map(loc => {
@@ -199,16 +200,25 @@ function lookupRecord() {
   document.getElementById('lookupBtn').disabled = true;
   google.script.run
     .withSuccessHandler(function(result) {
-      const existing = result.record;
+      // 등록된 근무자도 아니고 승인 대기 중인 신청도 없으면 record가 null이다.
+      const existing = result.record || {};
       document.getElementById('lookupBtn').disabled = false;
-      // Data 시트에 등록된 사람(이름+생년월일 일치)만 신청할 수 있다. 새 사람은 관리자가 등록한다.
-      if (!existing) { alert(NOT_REGISTERED_MSG); return; }
+      // 등록된 근무자가 이름·생년월일을 잘못 넣어 신규로 신청하는 일이 없도록 한 번 확인받는다.
+      if (!result.record && !confirm('등록된 근무자 정보가 없습니다. 신규 근무자로 신청하시겠습니까?\n\n이미 근무하신 적이 있다면 [취소]를 누르고 이름과 생년월일을 다시 확인해 주세요.')) return;
+      if (!result.record && !document.getElementById('phone').value.trim()) {
+        msgEl.innerHTML = '<div class="msg err">신규 신청은 연락처가 필요합니다.</div>';
+        return;
+      }
+      isNewApplicant = !result.record || !!result.pending;
       document.getElementById('name').disabled = true;
       document.getElementById('pin').disabled = true;
       document.getElementById('calendarSection').style.display = 'block';
       document.getElementById('applicationDetailsSection').style.display = 'block';
       document.getElementById('resetIdentityBtn').style.display = 'block';
-      document.getElementById('phone').value = existing.phone || '';
+      // 연락처 칸은 조회 전부터 열려 있다. 등록된 근무자는 등록된 번호를 보여주고 잠그며(수정은 관리자 화면),
+      // 신규 근무자는 조회 전에 넣은 번호를 그대로 두고 승인 전까지 고칠 수 있게 둔다.
+      if (result.record) document.getElementById('phone').value = existing.phone || '';
+      document.getElementById('phone').disabled = !isNewApplicant;
       adminBaseLocation = existing.adminLocation || '';
       renderGenderRadios(existing.gender);
       renderLocationCheckboxes(existing.locations);
@@ -216,8 +226,11 @@ function lookupRecord() {
       document.getElementById('messageBox').value = existing.message || '';
       document.getElementById('adConsent').checked = existing.adConsent === 'Y';
       buildDateList(existing.shifts);
-      document.getElementById('modeMsg').innerHTML = '<div class="msg info">기존 신청 내역을 불러왔습니다.</div>';
-      document.getElementById('cancelBtn').style.display = 'block';
+      const modeText = !result.record ? '신규 신청입니다. 근무할 날짜의 (주간/야간)을 눌러 주세요. 저장하면 관리자 승인 후 확정됩니다.'
+        : result.pending ? '관리자 승인을 기다리는 신청입니다. 승인 전까지 내용을 고칠 수 있습니다.'
+        : '기존 신청 내역을 불러왔습니다.';
+      document.getElementById('modeMsg').innerHTML = '<div class="msg info">' + modeText + '</div>';
+      document.getElementById('cancelBtn').style.display = result.record ? 'block' : 'none';
     })
     .withFailureHandler(function(err) {
       document.getElementById('lookupBtn').disabled = false;
@@ -241,6 +254,10 @@ function submitApplication() {
     resultMsg.innerHTML = '<div class="msg err">최소 하나의 날짜/시간대를 선택해주세요.</div>';
     return;
   }
+  if (isNewApplicant && !phone) {
+    resultMsg.innerHTML = '<div class="msg err">신규 신청은 연락처가 필요합니다.</div>';
+    return;
+  }
   const gender = getSelectedGender();
   if (!gender) {
     resultMsg.innerHTML = '<div class="msg err">성별을 선택해주세요.</div>';
@@ -256,10 +273,14 @@ function submitApplication() {
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '저장 중...';
   google.script.run
-    .withSuccessHandler(function(ok) {
+    .withSuccessHandler(function(result) {
       btn.disabled = false; btn.textContent = '저장하기';
-      // 조회한 뒤 등록 정보가 지워진 경우 등 서버가 신청을 받지 않으면 false가 온다.
-      if (!ok) { alert(NOT_REGISTERED_MSG); return; }
+      // Data에 없는 사람의 신청은 서버가 신규데이터 시트에 저장하고 'pending'을 돌려준다.
+      if (result === 'pending') {
+        resultMsg.innerHTML = '<div class="msg ok">✅ 신청이 접수되었습니다. 관리자 승인 후 확정됩니다.</div>';
+        document.getElementById('cancelBtn').style.display = 'block';
+        return;
+      }
       resultMsg.innerHTML = '<div class="msg ok">✅ 수정 완료되었습니다.</div>';
     })
     .withFailureHandler(function(err) {
@@ -288,7 +309,8 @@ function cancelApplication() {
 function resetIdentity() {
   document.getElementById('name').value = ''; document.getElementById('name').disabled = false;
   document.getElementById('pin').value = ''; document.getElementById('pin').disabled = false;
-  document.getElementById('phone').value = '';
+  document.getElementById('phone').value = ''; document.getElementById('phone').disabled = false;
+  isNewApplicant = false;
   adminBaseLocation = '';
   renderGenderRadios('');
   renderLocationCheckboxes([]);

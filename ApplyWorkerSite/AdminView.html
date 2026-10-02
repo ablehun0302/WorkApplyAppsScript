@@ -165,6 +165,27 @@
       <div id="adminEditMsg"></div>
     </div>
   </div>
+  <div id="pendingEditOverlay" class="edit-overlay" style="display:none;">
+    <div class="edit-overlay-card">
+      <div class="edit-overlay-title">신규 신청 수정 후 승인</div>
+      <div class="period-caption">신청 내용을 고친 뒤 승인하면 고친 값으로 근무자가 등록됩니다.</div>
+      <label>이름</label>
+      <input type="text" id="pendingEditName" placeholder="이름">
+      <label>생년월일 6자리</label>
+      <input type="text" id="pendingEditPin" maxlength="6" inputmode="numeric" placeholder="900101">
+      <label>연락처</label>
+      <input type="tel" id="pendingEditPhone" placeholder="010-0000-0000">
+      <label>성별</label>
+      <select id="pendingEditGender"></select>
+      <label>근무 장소</label>
+      <select id="pendingEditLocation"></select>
+      <label>근무 일정</label>
+      <div id="pendingEditDateList"></div>
+      <button class="primary" onclick="savePendingEditAndApprove()">수정 내용으로 승인</button>
+      <button class="secondary" onclick="closePendingEditOverlay()">취소</button>
+      <div id="pendingEditMsg"></div>
+    </div>
+  </div>
 </div>
 <div id="loadingOverlay" class="loading-overlay"><div class="loading-spinner"></div></div>
 <script>var PAGE_KEY = 'admin'; var BASE_URL = '<?!= baseUrl ?>';</script>
@@ -313,6 +334,7 @@ function workerLocation(key, dateStr) {
   return locationOfDate(lastRecords.find(r => r.key === key), dateStr);
 }
 let lastRecords = [], lastAssignments = [], lastTargets = [];
+let lastPending = []; // 승인 대기 중인 신규 근무자 신청(신규데이터 시트)
 
 // 모든 근무자를 "이름(생년월일6자리)", 생년월일이 없으면 "이름(미상)"으로 표시
 function nameWithBirth_(name, pin) {
@@ -1667,6 +1689,7 @@ window.addEventListener('popstate', function() {
   if (document.getElementById('pastHistoryOverlay').style.display === 'flex') closePastHistoryOverlay();
   else if (document.getElementById('adminAddOverlay').style.display === 'flex') closeAdminAddOverlay();
   else if (document.getElementById('adminEditOverlay').style.display === 'flex') closeAdminEditOverlay();
+  else if (document.getElementById('pendingEditOverlay').style.display === 'flex') closePendingEditOverlay();
 });
 
 function openPastHistoryEditor(key, name) {
@@ -2143,6 +2166,165 @@ function saveAdminShiftsEdit() {
     .adminUpdateShifts(adminEditKey, shifts, adminPassword);
 }
 
+// ---------- 신규 근무자 신청 승인 ----------
+// 신규 신청은 로그인 없이 누구나 넣을 수 있는 값이라, 이 패널에서는 태그로 해석되지 않게 바꿔서 보여준다.
+function escapeHtml_(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function pendingShiftSummary_(p) {
+  const base = (p.locations && p.locations[0]) || '';
+  return (p.shifts || []).slice().sort((a, b) => a.date < b.date ? -1 : 1).map(s => {
+    const shiftText = [s.day ? '주간' : '', s.night ? '야간' : ''].filter(Boolean).join('·');
+    const locText = (s.location && s.location !== base) ? ' ' + s.location : '';
+    return shortDate(s.date) + ' ' + shiftText + locText;
+  }).join(', ');
+}
+
+function buildPendingPanel() {
+  if (lastPending.length === 0) return '';
+  const btnStyle = 'width:auto; padding:6px 14px; margin-top:0; font-size:13px;';
+  let html = '<div class="card" id="pendingPanel">';
+  html += `<div style="font-weight:700;">🆕 신규 근무자 신청 ${lastPending.length}건</div>`;
+  html += '<div class="period-caption">승인하면 근무자로 등록되어 배치판에 나타납니다. 거절하면 신청이 삭제됩니다.</div>';
+  lastPending.forEach((p, idx) => {
+    // 등록된 근무자가 이름·생년월일을 잘못 넣어 신규로 들어온 경우를 알아볼 수 있게 한다.
+    const sameName = lastRecords.filter(r => r.name === p.name);
+    html += `<div style="border-top:1px solid #eee; padding:10px 0; font-size:13px;">
+      <div><b>${escapeHtml_(nameWithBirth_(p.name, p.pin))}</b> · ${escapeHtml_(p.gender || '성별 미지정')} · ${escapeHtml_(p.phone || '연락처 없음')} · ${escapeHtml_((p.locations && p.locations[0]) || '근무지 미지정')}</div>
+      <div style="margin-top:4px;">일정: ${escapeHtml_(pendingShiftSummary_(p) || '없음')}</div>
+      ${p.message ? `<div style="margin-top:4px; white-space:pre-wrap; color:#555;">하고 싶은 말: ${escapeHtml_(p.message)}</div>` : ''}
+      ${sameName.length ? `<div style="margin-top:4px; color:#c0392b;">⚠ 같은 이름의 등록 근무자가 있습니다: ${escapeHtml_(sameName.map(r => nameWithBirth_(r.name, r.pin)).join(', '))}</div>` : ''}
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+        <button class="primary" style="${btnStyle}" onclick="approvePendingAt(${idx})">승인</button>
+        <button class="secondary" style="${btnStyle}" onclick="openPendingEditOverlay(${idx})">수정 후 승인</button>
+        <button class="danger" style="${btnStyle}" onclick="rejectPendingAt(${idx})">거절</button>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+// 승인·거절 뒤에는 배치판을 다시 불러온다. 서버가 false를 주면 다른 관리자가 먼저 처리한 것이고,
+// 'changed'를 주면 이 화면을 불러온 뒤 신청자가 내용을 고친 것이라 승인되지 않았다.
+function onPendingHandled_(result) {
+  if (result === 'changed') alert('승인하려는 사이 신청자가 신청 내용을 수정해 승인하지 않았습니다. 바뀐 내용을 확인한 뒤 다시 승인해 주세요.');
+  else if (!result) alert('이미 처리된 신청입니다. 목록을 새로 불러옵니다.');
+  saveScrollForRefresh();
+  loadAdmin();
+}
+
+function approvePendingAt(idx) {
+  const p = lastPending[idx];
+  if (!confirm(nameWithBirth_(p.name, p.pin) + '님의 신청을 승인해 근무자로 등록할까요?')) return;
+  adminRun()
+    .withSuccessHandler(onPendingHandled_)
+    .withFailureHandler(function(err) { alert('승인 오류: ' + err.message); })
+    .approvePending(p.key, null, p.version, adminPassword);
+}
+
+function rejectPendingAt(idx) {
+  const p = lastPending[idx];
+  if (!confirm(nameWithBirth_(p.name, p.pin) + '님의 신청을 거절할까요? 신청 내용이 삭제되며 되돌릴 수 없습니다.')) return;
+  adminRun()
+    .withSuccessHandler(onPendingHandled_)
+    .withFailureHandler(function(err) { alert('거절 오류: ' + err.message); })
+    .rejectPending(p.key, adminPassword);
+}
+
+let pendingEditKey = null;
+let pendingEditVersion = '';
+let pendingEditSelections = {};
+
+function openPendingEditOverlay(idx) {
+  const p = lastPending[idx];
+  pendingEditKey = p.key;
+  pendingEditVersion = p.version;
+  document.getElementById('pendingEditMsg').innerHTML = '';
+  document.getElementById('pendingEditName').value = p.name || '';
+  document.getElementById('pendingEditPin').value = p.pin || '';
+  document.getElementById('pendingEditPhone').value = p.phone || '';
+  document.getElementById('pendingEditGender').innerHTML = ['', '남', '여'].map(g => `<option value="${g}" ${g===(p.gender||'')?'selected':''}>${g || '-'}</option>`).join('');
+  const loc = (p.locations && p.locations[0]) || '';
+  document.getElementById('pendingEditLocation').innerHTML = [''].concat(LOCATIONS).map(l => `<option value="${l}" ${l===loc?'selected':''}>${l || '-'}</option>`).join('');
+
+  const container = document.getElementById('pendingEditDateList');
+  container.innerHTML = '';
+  pendingEditSelections = {};
+  getTwoWeekDates().forEach((d, idx2) => {
+    if (idx2 === 0 || idx2 === 7) {
+      const we = new Date(d); we.setDate(d.getDate()+6);
+      const t = document.createElement('div');
+      t.className = 'week-title';
+      t.textContent = (idx2===0?'1주차':'2주차') + ` (${d.getMonth()+1}/${d.getDate()} ~ ${we.getMonth()+1}/${we.getDate()})`;
+      container.appendChild(t);
+    }
+    const key2 = formatDate(d);
+    const found = (p.shifts || []).find(s => s.date === key2) || {};
+    pendingEditSelections[key2] = { day: !!found.day, night: !!found.night };
+    const row = document.createElement('div');
+    row.className = 'date-row';
+    const isWeekend = (d.getDay()===0 || d.getDay()===6);
+    row.innerHTML = `
+      <div class="${isWeekend?'weekend':''}">${d.getMonth()+1}/${d.getDate()} (${DAY_NAMES[d.getDay()]})</div>
+      <div class="shift-btns">
+        <div class="shift-btn ${found.day?'selected':''}" id="pe_day_${key2}" onclick="togglePendingEditShift('${key2}','day')">주간</div>
+        <div class="shift-btn ${found.night?'selected':''}" id="pe_night_${key2}" onclick="togglePendingEditShift('${key2}','night')">야간</div>
+      </div>`;
+    container.appendChild(row);
+  });
+
+  document.getElementById('pendingEditOverlay').style.display = 'flex';
+  pushOverlayHistory();
+}
+
+function togglePendingEditShift(key, type) {
+  pendingEditSelections[key][type] = !pendingEditSelections[key][type];
+  document.getElementById('pe_' + type + '_' + key).classList.toggle('selected', pendingEditSelections[key][type]);
+}
+
+function closePendingEditOverlay() {
+  document.getElementById('pendingEditOverlay').style.display = 'none';
+  pendingEditKey = null;
+  consumeOverlayHistory();
+}
+
+function savePendingEditAndApprove() {
+  const name = document.getElementById('pendingEditName').value.trim();
+  const pin = document.getElementById('pendingEditPin').value.trim();
+  const location = document.getElementById('pendingEditLocation').value;
+  const msgEl = document.getElementById('pendingEditMsg');
+  if (!name) {
+    msgEl.innerHTML = '<div class="msg err">이름을 입력해주세요.</div>';
+    return;
+  }
+  // 근무자는 이름+생년월일로 신청 화면에 들어오므로, 생년월일 없이 등록하면 본인이 조회하지 못한다.
+  if (!/^[0-9]{6}$/.test(pin)) {
+    msgEl.innerHTML = '<div class="msg err">생년월일은 숫자 6자리로 입력해주세요.</div>';
+    return;
+  }
+  const edits = {
+    name: name,
+    pin: pin,
+    phone: document.getElementById('pendingEditPhone').value.trim(),
+    gender: document.getElementById('pendingEditGender').value,
+    locations: location ? [location] : [],
+    shifts: Object.entries(pendingEditSelections)
+      .filter(([k,v]) => v.day || v.night)
+      .map(([k,v]) => ({ date:k, day:v.day, night:v.night }))
+  };
+  adminRun()
+    .withSuccessHandler(function(result) {
+      closePendingEditOverlay();
+      onPendingHandled_(result);
+    })
+    .withFailureHandler(function(err) {
+      msgEl.innerHTML = '<div class="msg err">승인 오류: ' + err.message + '</div>';
+    })
+    .approvePending(pendingEditKey, edits, pendingEditVersion, adminPassword);
+}
+
 function floorOptionsHtml(loc) {
   return floorsFor(loc).map(f => `<option value="${f}">${f}</option>`).join('');
 }
@@ -2384,12 +2566,13 @@ function loadAdmin() {
   const content = document.getElementById('adminContent');
   content.innerHTML = '<div class="empty">불러오는 중...</div>';
   showLoading();
-  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword)])
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword), runScript('getPendingRecords', adminPassword)])
     .then(function(results) {
       hideLoading();
       lastRecords = results[0] || [];
       lastAssignments = results[1] || [];
       lastTargets = results[2] || [];
+      lastPending = results[3] || [];
       renderAdmin(lastRecords, lastAssignments, lastTargets);
     })
     .catch(function(err) {
@@ -2443,7 +2626,7 @@ function renderAdmin(records, assignments, targets) {
   });
 
   document.getElementById('adminLocationTabs').innerHTML = buildLocationTabs();
-  let html = buildGenderFixPanel(filteredRecords);
+  let html = buildPendingPanel() + buildGenderFixPanel(filteredRecords);
   const locationLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += buildWorkerWeekPair(week1, filteredRecords, locationLabel, assignments);
   html += buildWorkerWeekPair(week2, filteredRecords, locationLabel, assignments);
