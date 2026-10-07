@@ -75,4 +75,52 @@ test('findWorkerFolder는 폴더를 만들지 않고, getOrCreateWorkerFolder만
   assert.strictEqual(server.findWorkerFolder('홍길동', '01012345678', '900101'), 'id:홍길동 900101');
 });
 
+test('uploadFileName_·fileCategory_: "이름 항목[ 번호].확장자"', () => {
+  const fileName = server.uploadFileName_;
+  assert.strictEqual(fileName('홍길동', '신분증', 0, 'IMG_0001.JPG'), '홍길동 신분증.jpg');
+  assert.strictEqual(fileName('홍길동', '신분증', 2, 'scan.final.pdf'), '홍길동 신분증 2.pdf');
+
+  const category = server.fileCategory_;
+  assert.strictEqual(category('홍길동 신분증.jpg'), '신분증');
+  assert.strictEqual(category('홍길동 기타 12.pdf'), '기타');
+  assert.strictEqual(category('연락처.txt'), '');
+});
+
+test('uploadFile: 항목의 첫 파일만 기존 파일을 교체하고, 나머지는 번호를 붙여 모두 남긴다', () => {
+  let names = ['홍길동 신분증.jpg', '홍길동 통장사본.pdf', '연락처.txt'];
+  const makeFile = (name) => ({
+    getName: () => name,
+    getId: () => 'id:' + name,
+    isTrashed: () => false,
+    setTrashed: () => { names = names.filter((n) => n !== name); }
+  });
+  server.Utilities = { base64Decode: () => [1], newBlob: (data, mimeType, name) => name };
+  server.PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'root' }) };
+  server.DriveApp = {
+    getFolderById: () => ({
+      getParents: () => ({ hasNext: () => true, next: () => ({ getId: () => 'root' }) }),
+      getFiles: () => {
+        const list = names.map(makeFile);
+        return { hasNext: () => list.length > 0, next: () => list.shift() };
+      },
+      createFile: (name) => { names.push(name); return makeFile(name); }
+    })
+  };
+
+  const first = server.uploadFile('f', '신분증', '', 'image/jpeg', 'a.jpg', '홍길동', 1, true);
+  assert.strictEqual(first.fileName, '홍길동 신분증 1.jpg');
+  server.uploadFile('f', '신분증', '', 'image/png', 'b.png', '홍길동', 2, false);
+  assert.deepStrictEqual(names.slice().sort(),
+    ['연락처.txt', '홍길동 신분증 1.jpg', '홍길동 신분증 2.png', '홍길동 통장사본.pdf'].sort());
+
+  // 재시도(replace=false)는 같은 이름의 파일만 바꾼다.
+  server.uploadFile('f', '신분증', '', 'image/jpeg', 'a.jpg', '홍길동', 1, false);
+  assert.strictEqual(names.filter((n) => n === '홍길동 신분증 1.jpg').length, 1);
+  assert.strictEqual(names.length, 4);
+
+  assert.strictEqual(JSON.stringify(server.getExistingCategories('f')), JSON.stringify({ '통장사본': true, '신분증': true }));
+  assert.throws(() => server.uploadFile('f', '없는항목', '', 'image/jpeg', 'a.jpg', '홍길동', 0, true));
+  assert.throws(() => server.uploadFile('f', '신분증', '', 'image/jpeg', 'a.jpg', ' ', 0, true));
+});
+
 console.log(passed + '개 통과');

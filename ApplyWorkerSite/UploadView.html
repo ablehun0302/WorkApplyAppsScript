@@ -129,7 +129,8 @@ function collectFilesToUpload() {
         errorEl.textContent = file.name + ': 파일 용량은 10MB를 초과할 수 없습니다.';
         return null;
       }
-      files.push({ category: spec.category, file: file });
+      // 한 항목에 여러 개면 1부터 번호를 붙이고, 항목별 첫 파일을 올릴 때 그 항목의 기존 파일을 교체한다.
+      files.push({ category: spec.category, file: file, name: name, seq: selected.length > 1 ? j + 1 : 0, replace: j === 0 });
     }
   }
 
@@ -179,7 +180,9 @@ function uploadOneFile(folderId, entry) {
           entry.retryButton.style.display = 'inline';
           resolve(false);
         })
-        .uploadFile(folderId, entry.category, base64Data, entry.file.type, entry.file.name);
+        .uploadFile(folderId, entry.category, base64Data, entry.file.type, entry.file.name, entry.name, entry.seq, entry.replace);
+      // 재시도 때는 같은 제출에서 먼저 올라간 파일을 지우지 않는다.
+      entry.replace = false;
     };
     reader.onerror = function () {
       setStatus(entry, '실패: 파일을 읽을 수 없습니다.');
