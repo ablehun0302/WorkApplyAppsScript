@@ -850,6 +850,56 @@ function updateAssignLocation_(key, date, location) {
   }
 }
 
+// 여러 (사람, 날짜)의 근무지를 한 곳으로 한 번에 옮긴다(관리자 화면의 '근무지 수정' 모드).
+// list: [{ key, date }]. 날짜마다 적용되는 규칙은 setShiftLocation과 같다.
+function batchSetShiftLocations(list, location, adminPw) {
+  requireAdmin_(adminPw);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  const moved = {}; // 'key|date' → 옮긴 뒤 실효 근무지
+  let skipped = 0;
+  try {
+    const sheet = getDataSheet_();
+    const data = sheet.getDataRange().getValues();
+    const keyToIndex = {};
+    for (let i = 1; i < data.length; i++) keyToIndex[data[i][0]] = i;
+    const datesByKey = {};
+    list.forEach(function (item) { (datesByKey[item.key] = datesByKey[item.key] || []).push(item.date); });
+
+    Object.keys(datesByKey).forEach(function (key) {
+      const i = keyToIndex[key];
+      if (i === undefined) { skipped += datesByKey[key].length; return; }
+      let shifts = [];
+      let locations = [];
+      try { shifts = JSON.parse(data[i][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+      try { locations = JSON.parse(data[i][6] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+      const baseLocation = data[i][7] || locations[0] || '';
+      let changed = false;
+      datesByKey[key].forEach(function (date) {
+        const target = shifts.filter(function (s) { return s.date === date; })[0];
+        // 화면을 띄워둔 사이 근무자가 그 날짜 신청을 취소했을 수 있다. 없는 날짜는 만들지 않는다.
+        if (!target) { skipped++; return; }
+        if (!location || location === baseLocation) delete target.location;
+        else target.location = location;
+        moved[key + '|' + date] = target.location || baseLocation;
+        changed = true;
+      });
+      if (changed) sheet.getRange(i + 1, 6).setValue(JSON.stringify(shifts));
+    });
+  } finally {
+    lock.releaseLock();
+  }
+
+  // 이미 배치된 날짜는 Assign K열도 맞춘다(updateAssignLocation_과 같은 일을 시트 한 번 읽기로).
+  const assignSheet = getAssignSheet_();
+  const assignData = assignSheet.getDataRange().getValues();
+  for (let i = 1; i < assignData.length; i++) {
+    const k = assignData[i][3] + '|' + toDateStr_(assignData[i][1]);
+    if (Object.prototype.hasOwnProperty.call(moved, k)) assignSheet.getRange(i + 1, 11).setValue(moved[k]);
+  }
+  return { saved: Object.keys(moved).length, skipped: skipped };
+}
+
 function deleteRecord(name, pin) {
   const key = makeKey_(name, pin);
   // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하되,
