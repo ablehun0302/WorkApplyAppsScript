@@ -17,6 +17,10 @@
 
         <label>연락처</label>
         <input type="tel" id="phoneInput" required>
+
+        <label>생년월일 6자리 (선택)</label>
+        <p class="hint">신분증을 올리면 자동으로 읽어 채웁니다.</p>
+        <input type="text" id="birthInput" inputmode="numeric" maxlength="6">
         <button type="button" class="secondary" onclick="checkExistingFiles()">기존 파일 확인</button>
         <p class="week-title">파일이 없는 항목은 새로 추가되고, 기존에 올린 파일이 있는 항목은 새로 올린 파일로 교체됩니다.</p>
 
@@ -57,27 +61,36 @@ function checkExistingFiles() {
   var errorEl = document.getElementById('errorMessage');
   var name = document.getElementById('nameInput').value.trim();
   var phone = document.getElementById('phoneInput').value.trim();
+  var birth = document.getElementById('birthInput').value.trim();
   if (!name || !phone) {
     errorEl.textContent = '이름과 연락처를 먼저 입력해 주세요.';
     return;
   }
+  if (birth && !/^\d{6}$/.test(birth)) {
+    errorEl.textContent = '생년월일은 숫자 6자리로 입력해 주세요.';
+    return;
+  }
   errorEl.textContent = '';
+
+  function showExisting(existing) {
+    CATEGORY_INPUTS.forEach(function (spec) {
+      var hasFile = !!existing[spec.category];
+      document.getElementById(spec.statusId).hidden = !hasFile;
+      document.getElementById(spec.noneStatusId).hidden = hasFile;
+    });
+  }
 
   google.script.run
     .withSuccessHandler(function (folderId) {
+      // 폴더가 아직 없으면(제출한 적 없음) 모든 항목이 '파일 없음'이다.
+      if (!folderId) { showExisting({}); return; }
       google.script.run
-        .withSuccessHandler(function (existing) {
-          CATEGORY_INPUTS.forEach(function (spec) {
-            var hasFile = !!existing[spec.category];
-            document.getElementById(spec.statusId).hidden = !hasFile;
-            document.getElementById(spec.noneStatusId).hidden = hasFile;
-          });
-        })
+        .withSuccessHandler(showExisting)
         .withFailureHandler(function () {})
         .getExistingCategories(folderId);
     })
     .withFailureHandler(function () {})
-    .getOrCreateWorkerFolder(name, phone);
+    .findWorkerFolder(name, phone, birth);
 }
 
 function isAllowedFile(file) {
@@ -92,6 +105,8 @@ function collectFilesToUpload() {
   var phone = document.getElementById('phoneInput').value.trim();
   if (!name) { errorEl.textContent = '이름을 입력해 주세요.'; return null; }
   if (!phone) { errorEl.textContent = '연락처를 입력해 주세요.'; return null; }
+  var birth = document.getElementById('birthInput').value.trim();
+  if (birth && !/^\d{6}$/.test(birth)) { errorEl.textContent = '생년월일은 숫자 6자리로 입력해 주세요.'; return null; }
 
   var files = [];
   for (var i = 0; i < CATEGORY_INPUTS.length; i++) {
@@ -114,11 +129,34 @@ function collectFilesToUpload() {
         errorEl.textContent = file.name + ': 파일 용량은 10MB를 초과할 수 없습니다.';
         return null;
       }
-      files.push({ category: spec.category, file: file });
+      // 한 항목에 여러 개면 1부터 번호를 붙이고, 항목별 첫 파일을 올릴 때 그 항목의 기존 파일을 교체한다.
+      files.push({ category: spec.category, file: file, name: name, seq: selected.length > 1 ? j + 1 : 0, replace: j === 0 });
     }
   }
 
-  return { name: name, phone: phone, files: files };
+  return { name: name, phone: phone, birth: birth, files: files };
+}
+
+// 신분증이 있으면 OCR로 읽은 주민번호 앞 6자리를, 없거나 읽지 못하면 입력칸 값을 쓴다.
+function resolveBirth(collected) {
+  return new Promise(function (resolve) {
+    var idCard = collected.files.filter(function (entry) { return entry.category === '신분증'; })[0];
+    if (!idCard) { resolve(collected.birth); return; }
+
+    document.getElementById('errorMessage').textContent = '신분증 확인 중...';
+    var reader = new FileReader();
+    reader.onload = function () {
+      google.script.run
+        .withSuccessHandler(function (birth) {
+          if (birth) document.getElementById('birthInput').value = birth;
+          resolve(birth || collected.birth);
+        })
+        .withFailureHandler(function () { collected.ocrFailed = true; resolve(collected.birth); })
+        .extractBirthFromIdCard(reader.result.split(',')[1], idCard.file.type);
+    };
+    reader.onerror = function () { resolve(collected.birth); };
+    reader.readAsDataURL(idCard.file);
+  });
 }
 
 function setStatus(entry, text) {
@@ -142,7 +180,9 @@ function uploadOneFile(folderId, entry) {
           entry.retryButton.style.display = 'inline';
           resolve(false);
         })
-        .uploadFile(folderId, entry.category, base64Data, entry.file.type, entry.file.name);
+        .uploadFile(folderId, entry.category, base64Data, entry.file.type, entry.file.name, entry.name, entry.seq, entry.replace);
+      // 재시도 때는 같은 제출에서 먼저 올라간 파일을 지우지 않는다.
+      entry.replace = false;
     };
     reader.onerror = function () {
       setStatus(entry, '실패: 파일을 읽을 수 없습니다.');
@@ -195,36 +235,47 @@ function handleSubmit() {
   submitButton.disabled = true;
   renderFileList(collected.files);
 
-  google.script.run
-    .withSuccessHandler(function (folderId) {
-      collected.files.forEach(function (entry) { entry.folderId = folderId; });
-
-      var index = 0;
-      var successCount = 0;
-      var failCount = 0;
-
-      function uploadNext() {
-        if (index >= collected.files.length) {
-          document.getElementById('errorMessage').textContent =
-            '완료: 성공 ' + successCount + '건, 실패 ' + failCount + '건';
-          submitButton.disabled = false;
-          return;
-        }
-        var entry = collected.files[index];
-        index++;
-        uploadOneFile(folderId, entry).then(function (ok) {
-          if (ok) { successCount++; } else { failCount++; }
-          uploadNext();
-        });
-      }
-
-      uploadNext();
-    })
-    .withFailureHandler(function (error) {
-      document.getElementById('errorMessage').textContent = '폴더 생성 실패: ' + error.message;
+  resolveBirth(collected).then(function (birth) {
+    // OCR 자체가 실패했을 때만 막는다. 주민번호를 못 찾은 경우는 '이름 연락처' 폴더에 저장한다.
+    if (collected.ocrFailed && !birth) {
+      document.getElementById('errorMessage').textContent =
+        '신분증을 읽는 중 시스템 오류가 발생했습니다. 생년월일 6자리를 직접 입력해 제출해 주시고, 계속되면 관리자에게 문의해 주세요.';
+      document.getElementById('resultArea').innerHTML = '';
       submitButton.disabled = false;
-    })
-    .getOrCreateWorkerFolder(collected.name, collected.phone);
+      return;
+    }
+    document.getElementById('errorMessage').textContent = '';
+    google.script.run
+      .withSuccessHandler(function (folderId) {
+        collected.files.forEach(function (entry) { entry.folderId = folderId; });
+
+        var index = 0;
+        var successCount = 0;
+        var failCount = 0;
+
+        function uploadNext() {
+          if (index >= collected.files.length) {
+            document.getElementById('errorMessage').textContent =
+              '완료: 성공 ' + successCount + '건, 실패 ' + failCount + '건';
+            submitButton.disabled = false;
+            return;
+          }
+          var entry = collected.files[index];
+          index++;
+          uploadOneFile(folderId, entry).then(function (ok) {
+            if (ok) { successCount++; } else { failCount++; }
+            uploadNext();
+          });
+        }
+
+        uploadNext();
+      })
+      .withFailureHandler(function (error) {
+        document.getElementById('errorMessage').textContent = '폴더 생성 실패: ' + error.message;
+        submitButton.disabled = false;
+      })
+      .getOrCreateWorkerFolder(collected.name, collected.phone, birth);
+  });
 }
 </script>
 </body>
