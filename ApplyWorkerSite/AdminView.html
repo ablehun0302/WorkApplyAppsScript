@@ -601,9 +601,9 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
     menu.appendChild(btn);
   });
   const clearBtn = document.createElement('button');
-  clearBtn.textContent = '지우기';
+  clearBtn.textContent = '배치 취소';
   clearBtn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fdecea; color:#c0392b; border-radius:6px; cursor:pointer; text-align:left;';
-  clearBtn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, '', ''); };
+  clearBtn.onclick = function(e) { e.stopPropagation(); removeCellAssignment(dateStr, shiftKey, key); };
   menu.appendChild(clearBtn);
   document.body.appendChild(menu);
   setTimeout(() => document.addEventListener('click', closeFloorMenu, { once: true }), 0);
@@ -628,6 +628,14 @@ function setCellFloor(dateStr, shiftKey, key, floor, transport) {
     })
     .withFailureHandler(function(err) { alert('저장 오류: ' + err.message); })
     .saveAssignment(dateStr, shiftKey, key, name, gender, floorVal, isEducation, isNew, isWomenWage, transportVal, adminPassword);
+}
+
+// 배치 행 자체를 지운다(날짜별 배치판의 '선택 배치취소'와 같은 동작). 신청은 그대로 남는다.
+function removeCellAssignment(dateStr, shiftKey, key) {
+  adminRun()
+    .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
+    .withFailureHandler(function(err) { alert('배치취소 오류: ' + err.message); })
+    .removeAssignment(dateStr, shiftKey, key, adminPassword);
 }
 
 // 그 날짜의 근무지만 바꾼다. 배치를 만들지는 않는다(층/이동수단 버튼과 다른 점).
@@ -1117,7 +1125,7 @@ function renderInfoEditFloorButtons() {
   if (transports.indexOf(infoEditSelection.transport) === -1) infoEditSelection.transport = '';
   row.innerHTML = ['', ...floors].map(f => f === '기타'
     ? `<button type="button" class="info-edit-floor-btn" id="infoEditEtcBtn" data-floor="기타" onclick="setInfoEditEtcFloor()">기타</button>`
-    : `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '지우기'}</button>`
+    : `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '배치 취소'}</button>`
   ).join('');
   tRow.innerHTML = transports.length === 0 ? '' : ['', ...transports].map(t =>
     `<button type="button" class="info-edit-floor-btn" data-transport="${t}" onclick="setInfoEditTransport('${t}')">${t || '이동수단 없음'}</button>`
@@ -1155,12 +1163,14 @@ function setInfoEditFlag(flag, checked) {
 // 수정모드에서 배치된 칸을 클릭하면 툴바에서 골라둔 값을 즉시 반영(대기)하고,
 // 이미 그 값이 적용돼 있는 칸을 다시 클릭하면 원래 값으로 되돌린다(신청날짜 토글과 동일한 방식)
 function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
+  // '배치 취소'(층 빈 값)를 골랐으면 이동수단·체크박스와 무관하게 전부 비운다. 저장할 때 이 칸은 배치 행을 지운다.
+  const cancel = infoEditSelection.floor === '';
   const target = {
     floor: infoEditSelection.floor,
-    transport: infoEditSelection.transport,
-    isEducation: infoEditSelection.isEducation,
-    isNew: infoEditSelection.isNew,
-    isWomenWage: infoEditSelection.isWomenWage
+    transport: cancel ? '' : infoEditSelection.transport,
+    isEducation: !cancel && infoEditSelection.isEducation,
+    isNew: !cancel && infoEditSelection.isNew,
+    isWomenWage: !cancel && infoEditSelection.isWomenWage
   };
   const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
   const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
@@ -1303,9 +1313,11 @@ function cancelInfoEditChanges() {
   syncInfoEditToolbar();
 }
 
-// 근로자/날짜/시프트별 배치정보 변경사항을 한 번의 batchSaveAssignments 호출로 저장
+// 근로자/날짜/시프트별 배치정보 변경사항을 한 번의 batchSaveAssignments 호출로 저장.
+// 층이 빈 칸('배치 취소')은 batchRemoveAssignments로 따로 보내 배치 행을 지운다.
 function saveInfoEditChanges() {
   const list = [];
+  const removeList = [];
   Object.keys(pendingInfoChanges).forEach(key => {
     const rec = lastRecords.find(r => r.key === key);
     const gender = (rec && (rec.adminGender || rec.gender)) || '남';
@@ -1313,31 +1325,36 @@ function saveInfoEditChanges() {
     Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
       Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => {
         const v = pendingInfoChanges[key][dateStr][shiftKey];
+        if (v.floor === '') { removeList.push({ date: dateStr, shift: shiftKey, key: key }); return; }
         list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
       });
     });
   });
-  if (list.length === 0) return;
+  if (list.length === 0 && removeList.length === 0) return;
 
   const statusEl = document.getElementById('infoEditStatus');
   const saveBtn = document.getElementById('infoEditSaveBtn');
   saveBtn.disabled = true;
   statusEl.textContent = '저장 중...';
-  adminRun()
-    .withSuccessHandler(function(res) {
-      pendingInfoChanges = {};
-      infoEditMode = false;
-      document.body.classList.remove('info-edit-mode');
-      // 화면을 띄워둔 사이 근무자가 신청을 취소한 칸은 서버가 저장하지 않고 건수만 돌려준다.
-      if (res && res.skipped) alert(res.skipped + '건은 근무자가 신청을 취소해 저장하지 못했습니다. 화면을 새로 불러옵니다.');
-      saveScrollForRefresh();
-      loadAdmin();
-    })
-    .withFailureHandler(function(err) {
-      statusEl.textContent = '저장 오류: ' + err.message;
-      saveBtn.disabled = false;
-    })
-    .batchSaveAssignments(list, adminPassword);
+  const onDone = function(res) {
+    pendingInfoChanges = {};
+    infoEditMode = false;
+    document.body.classList.remove('info-edit-mode');
+    // 화면을 띄워둔 사이 근무자가 신청을 취소한 칸은 서버가 저장하지 않고 건수만 돌려준다.
+    if (res && res.skipped) alert(res.skipped + '건은 근무자가 신청을 취소해 저장하지 못했습니다. 화면을 새로 불러옵니다.');
+    saveScrollForRefresh();
+    loadAdmin();
+  };
+  const onFail = function(err) {
+    statusEl.textContent = '저장 오류: ' + err.message;
+    saveBtn.disabled = false;
+  };
+  const saveRest = function() {
+    if (list.length === 0) { onDone(); return; }
+    adminRun().withSuccessHandler(onDone).withFailureHandler(onFail).batchSaveAssignments(list, adminPassword);
+  };
+  if (removeList.length === 0) { saveRest(); return; }
+  adminRun().withSuccessHandler(saveRest).withFailureHandler(onFail).batchRemoveAssignments(removeList, adminPassword);
 }
 
 function reorderWorker(keyA, keyB) {
