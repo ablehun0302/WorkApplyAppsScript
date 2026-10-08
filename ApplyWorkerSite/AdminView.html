@@ -544,6 +544,15 @@ function renderFloorMark(char, floor, transport) {
   if (label) return `${char}<div class="mark-label">${label}</div>`;
   return char;
 }
+// 배치표 칸의 층 표시 아래에 붙이는 교육/신규/여임금 표시
+function renderInfoFlags(a) {
+  if (!a) return '';
+  const flags = [];
+  if (a.isEducation) flags.push('<span class="edu-badge">교육</span>');
+  if (a.isNew) flags.push('<span class="new-badge">신규</span>');
+  if (a.isWomenWage) flags.push('<span class="wage-badge">여임금</span>');
+  return flags.length ? `<div class="mark-label">${flags.join(' ')}</div>` : '';
+}
 
 function closeFloorMenu() {
   const m = document.getElementById('floorMenuPopup');
@@ -783,7 +792,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
       const transport = asg ? asg.transport : '';
-      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}${kitchenCellLabel(r.rec, dateStr, shiftKey)}</td>`;
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}${renderInfoFlags(asg)}${kitchenCellLabel(r.rec, dateStr, shiftKey)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -1241,11 +1250,11 @@ function applyInfoCellPendingStyle(dateStr, shiftKey, key) {
   const kitchenLabel = rec ? kitchenCellLabel(rec, dateStr, shiftKey) : '';
   if (pending) {
     cell.classList.add('info-pending');
-    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport) + kitchenLabel;
+    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport) + renderInfoFlags(pending) + kitchenLabel;
   } else {
     cell.classList.remove('info-pending');
     const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '') + kitchenLabel;
+    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '') + renderInfoFlags(asg) + kitchenLabel;
   }
 }
 
