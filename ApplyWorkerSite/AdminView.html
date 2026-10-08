@@ -266,8 +266,9 @@ function addScrollArrows(containerEl) {
 }
 
 // 업체별 배치정보 옵션. 목록이 없는 업체는 DEFAULT_FLOORS를 쓰고, 이동수단은 목록이 있는 업체만 표시한다.
-const DEFAULT_FLOORS = ['1층','2층','3층','입출하','미화','날인실','기타'];
+const DEFAULT_FLOORS = ['배치','기타'];
 const FLOORS_BY_LOCATION = {
+  '신세계푸드 원남': ['1층','2층','3층','입출하','미화','날인실','기타'],
   '델몬트_원남': ['증평','음성','괴산','청주','충주','금왕','진천','기타'],
   '포장우리와_금왕': ['포장','원료','기타'],
   '물류우리와_금왕': ['검수','주간지게','야간지게','재적재','기타'],
@@ -275,7 +276,7 @@ const FLOORS_BY_LOCATION = {
 };
 const TRANSPORTS_BY_LOCATION = { '델몬트_원남': ['버스','자차'] };
 function floorsFor(loc) {
-  if (loc === '전체') return Array.from(new Set([].concat(DEFAULT_FLOORS, ...Object.values(FLOORS_BY_LOCATION))));
+  if (loc === '전체') return Array.from(new Set([].concat(...Object.values(FLOORS_BY_LOCATION), DEFAULT_FLOORS)));
   return FLOORS_BY_LOCATION[loc] || DEFAULT_FLOORS;
 }
 function transportsFor(loc) {
@@ -1112,7 +1113,8 @@ function saveDateEditChanges() {
 // ---------- compact 표에서 배치정보(층/교육/신규/여임금) 일괄 수정(모드) ----------
 let infoEditMode = false;
 let pendingInfoChanges = {}; // { [key]: { [dateStr]: { [shiftKey]: {floor, transport, isEducation, isNew, isWomenWage} } } }
-let infoEditSelection = { floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
+// keep이 켜져 있으면('배치정보 유지') 칸의 층·이동수단은 그대로 두고 교육/신규/여임금만 적용한다.
+let infoEditSelection = { keep: true, floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
 
 // 현재 근무지 탭에 맞는 층/이동수단 버튼을 그린다('전체' 탭은 모든 업체의 옵션)
 function renderInfoEditFloorButtons() {
@@ -1123,7 +1125,7 @@ function renderInfoEditFloorButtons() {
   const transports = transportsFor(currentLocationFilter);
   if (floors.indexOf(infoEditSelection.floor) === -1) infoEditSelection.floor = '';
   if (transports.indexOf(infoEditSelection.transport) === -1) infoEditSelection.transport = '';
-  row.innerHTML = ['', ...floors].map(f => f === '기타'
+  row.innerHTML = `<button type="button" class="info-edit-floor-btn" data-keep="1" onclick="setInfoEditKeep()">배치정보 유지</button>` + ['', ...floors].map(f => f === '기타'
     ? `<button type="button" class="info-edit-floor-btn" id="infoEditEtcBtn" data-floor="기타" onclick="setInfoEditEtcFloor()">기타</button>`
     : `<button type="button" class="info-edit-floor-btn" data-floor="${f}" onclick="setInfoEditFloor('${f}')">${f || '배치 취소'}</button>`
   ).join('');
@@ -1131,6 +1133,28 @@ function renderInfoEditFloorButtons() {
     `<button type="button" class="info-edit-floor-btn" data-transport="${t}" onclick="setInfoEditTransport('${t}')">${t || '이동수단 없음'}</button>`
   ).join('');
   tRow.style.display = transports.length === 0 ? 'none' : '';
+  syncInfoEditButtons_();
+}
+
+// 층/이동수단 버튼의 선택 표시. '배치정보 유지' 중에는 둘 다 선택 없이 흐리게 두고, 층 버튼을 누르면 풀린다.
+function syncInfoEditButtons_() {
+  const keep = infoEditSelection.keep;
+  document.querySelectorAll('.info-edit-floor-btn[data-keep]').forEach(b => b.classList.toggle('selected', keep));
+  document.querySelectorAll('.info-edit-floor-btn[data-floor]').forEach(b => {
+    b.classList.toggle('selected', !keep && b.dataset.floor === infoEditSelection.floor);
+    b.classList.toggle('dimmed', keep);
+  });
+  document.querySelectorAll('.info-edit-floor-btn[data-transport]').forEach(b => {
+    b.classList.toggle('selected', !keep && b.dataset.transport === infoEditSelection.transport);
+    b.disabled = keep;
+  });
+}
+
+function setInfoEditKeep() {
+  infoEditSelection.keep = true;
+  infoEditSelection.floor = '';
+  infoEditSelection.transport = '';
+  syncInfoEditButtons_();
 }
 renderInfoEditFloorButtons();
 
@@ -1140,6 +1164,7 @@ function setInfoEditEtcFloor() {
 }
 
 function setInfoEditFloor(f) {
+  infoEditSelection.keep = false;
   infoEditSelection.floor = f;
   // 목록에 없는 값(기타 직접 입력)이면 기타 버튼에 그 값을 달아 선택 표시한다
   const etcBtn = document.getElementById('infoEditEtcBtn');
@@ -1148,12 +1173,12 @@ function setInfoEditFloor(f) {
     etcBtn.dataset.floor = isCustom ? f : '기타';
     etcBtn.textContent = isCustom ? '기타: ' + f : '기타';
   }
-  document.querySelectorAll('.info-edit-floor-btn[data-floor]').forEach(b => b.classList.toggle('selected', b.dataset.floor === f));
+  syncInfoEditButtons_();
 }
 
 function setInfoEditTransport(t) {
   infoEditSelection.transport = t;
-  document.querySelectorAll('.info-edit-floor-btn[data-transport]').forEach(b => b.classList.toggle('selected', b.dataset.transport === t));
+  syncInfoEditButtons_();
 }
 
 function setInfoEditFlag(flag, checked) {
@@ -1163,20 +1188,23 @@ function setInfoEditFlag(flag, checked) {
 // 수정모드에서 배치된 칸을 클릭하면 툴바에서 골라둔 값을 즉시 반영(대기)하고,
 // 이미 그 값이 적용돼 있는 칸을 다시 클릭하면 원래 값으로 되돌린다(신청날짜 토글과 동일한 방식)
 function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
-  // '배치 취소'(층 빈 값)를 골랐으면 이동수단·체크박스와 무관하게 전부 비운다. 저장할 때 이 칸은 배치 행을 지운다.
-  const cancel = infoEditSelection.floor === '';
-  const target = {
-    floor: infoEditSelection.floor,
-    transport: cancel ? '' : infoEditSelection.transport,
-    isEducation: !cancel && infoEditSelection.isEducation,
-    isNew: !cancel && infoEditSelection.isNew,
-    isWomenWage: !cancel && infoEditSelection.isWomenWage
-  };
   const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
   const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+  // '배치정보 유지'면 원래 층·이동수단을 그대로 두고 체크박스만 적용한다.
+  // '배치 취소'(층 빈 값)를 골랐으면 이동수단·체크박스와 무관하게 전부 비운다. 저장할 때 이 칸은 배치 행을 지운다(remove).
+  const keep = infoEditSelection.keep;
+  const cancel = !keep && infoEditSelection.floor === '';
+  const target = {
+    floor: keep ? original.floor : infoEditSelection.floor,
+    transport: keep ? original.transport : (cancel ? '' : infoEditSelection.transport),
+    isEducation: !cancel && infoEditSelection.isEducation,
+    isNew: !cancel && infoEditSelection.isNew,
+    isWomenWage: !cancel && infoEditSelection.isWomenWage,
+    remove: cancel
+  };
   const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
   const current = pending || original;
-  const alreadyApplied = current.floor === target.floor && current.transport === target.transport && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage;
+  const alreadyApplied = current.floor === target.floor && current.transport === target.transport && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage && !!current.remove === target.remove;
 
   setPendingInfo(dateStr, shiftKey, key, alreadyApplied ? original : target);
 }
@@ -1184,7 +1212,7 @@ function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
 function setPendingInfo(dateStr, shiftKey, key, values) {
   const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
   const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
-  const same = values.floor === original.floor && values.transport === original.transport && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage;
+  const same = values.floor === original.floor && values.transport === original.transport && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage && !(values.remove && asg);
 
   if (!pendingInfoChanges[key]) pendingInfoChanges[key] = {};
   if (same) {
@@ -1269,8 +1297,7 @@ function syncInfoEditToolbar() {
 
   if (optionsEl) {
     optionsEl.style.display = infoEditMode ? 'flex' : 'none';
-    optionsEl.querySelectorAll('.info-edit-floor-btn[data-floor]').forEach(b => b.classList.toggle('selected', b.dataset.floor === infoEditSelection.floor));
-    optionsEl.querySelectorAll('.info-edit-floor-btn[data-transport]').forEach(b => b.classList.toggle('selected', b.dataset.transport === infoEditSelection.transport));
+    syncInfoEditButtons_();
     const eduCb = document.getElementById('infoEditEduCb'); if (eduCb) eduCb.checked = infoEditSelection.isEducation;
     const newCb = document.getElementById('infoEditNewCb'); if (newCb) newCb.checked = infoEditSelection.isNew;
     const wageCb = document.getElementById('infoEditWageCb'); if (wageCb) wageCb.checked = infoEditSelection.isWomenWage;
@@ -1300,7 +1327,7 @@ function toggleInfoEditMode() {
   }
   clearPendingInfoChanges_();
   infoEditMode = !infoEditMode;
-  if (infoEditMode) infoEditSelection = { floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false };
+  if (infoEditMode) infoEditSelection = { keep: true, floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false };
   renderInfoEditFloorButtons();
   document.body.classList.toggle('info-edit-mode', infoEditMode);
   syncInfoEditToolbar();
@@ -1314,7 +1341,7 @@ function cancelInfoEditChanges() {
 }
 
 // 근로자/날짜/시프트별 배치정보 변경사항을 한 번의 batchSaveAssignments 호출로 저장.
-// 층이 빈 칸('배치 취소')은 batchRemoveAssignments로 따로 보내 배치 행을 지운다.
+// '배치 취소'한 칸(remove)은 batchRemoveAssignments로 따로 보내 배치 행을 지운다.
 function saveInfoEditChanges() {
   const list = [];
   const removeList = [];
@@ -1325,7 +1352,7 @@ function saveInfoEditChanges() {
     Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
       Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => {
         const v = pendingInfoChanges[key][dateStr][shiftKey];
-        if (v.floor === '') { removeList.push({ date: dateStr, shift: shiftKey, key: key }); return; }
+        if (v.remove) { removeList.push({ date: dateStr, shift: shiftKey, key: key }); return; }
         list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
       });
     });
