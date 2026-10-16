@@ -16,6 +16,19 @@ function getTwoWeekDates() {
   return dates;
 }
 
+// 생년월일 입력칸: 숫자만 남기고 6자리까지만 받는다.
+function formatPinInput(el) {
+  el.value = el.value.replace(/[^0-9]/g, '').slice(0, 6);
+}
+
+// 연락처 입력칸: 숫자만 남겨 000-0000-0000 형태로 하이픈을 자동으로 넣는다.
+function formatPhoneInput(el) {
+  const d = el.value.replace(/[^0-9]/g, '').slice(0, 11);
+  if (d.length <= 3) el.value = d;
+  else if (d.length <= 7) el.value = d.slice(0, 3) + '-' + d.slice(3);
+  else el.value = d.slice(0, 3) + '-' + d.slice(3, 7) + '-' + d.slice(7);
+}
+
 // href="?page=..." 상대경로는 iframe 내부 주소(googleusercontent.com) 기준으로 풀려서 못 씀 -> 서버가 내려준 절대 URL(BASE_URL)로 직접 이동
 function goToPage(page) {
   window.top.location.href = BASE_URL + '?page=' + page;

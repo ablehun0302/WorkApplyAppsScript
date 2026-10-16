@@ -137,9 +137,9 @@
         <datalist id="adminAddNameList"></datalist>
         <div id="adminAddNameChoices"></div>
         <label>생년월일 6자리</label>
-        <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101">
+        <input type="text" id="adminAddPin" maxlength="6" inputmode="numeric" placeholder="900101" oninput="formatPinInput(this)">
         <label>연락처</label>
-        <input type="tel" id="adminAddPhone" placeholder="010-0000-0000">
+        <input type="tel" id="adminAddPhone" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneInput(this)">
         <label>성별</label>
         <div id="adminAddGenderRadios" class="location-checkboxes"></div>
         <label>근무 장소</label>
@@ -165,9 +165,9 @@
       <label>이름</label>
       <input type="text" id="adminEditName" placeholder="이름">
       <label>연락처</label>
-      <input type="tel" id="adminEditPhone" placeholder="010-0000-0000">
+      <input type="tel" id="adminEditPhone" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneInput(this)">
       <label>생년월일 6자리 (비어있으면 나중에 채워도 됩니다)</label>
-      <input type="text" id="adminEditPin" maxlength="6" inputmode="numeric" placeholder="900101">
+      <input type="text" id="adminEditPin" maxlength="6" inputmode="numeric" placeholder="900101" oninput="formatPinInput(this)">
       <div id="adminEditDateList"></div>
       <button class="primary" onclick="saveAdminShiftsEdit()">저장</button>
       <button class="secondary" onclick="closeAdminEditOverlay()">취소</button>
@@ -182,9 +182,9 @@
       <label>이름</label>
       <input type="text" id="pendingEditName" placeholder="이름">
       <label>생년월일 6자리</label>
-      <input type="text" id="pendingEditPin" maxlength="6" inputmode="numeric" placeholder="900101">
+      <input type="text" id="pendingEditPin" maxlength="6" inputmode="numeric" placeholder="900101" oninput="formatPinInput(this)">
       <label>연락처</label>
-      <input type="tel" id="pendingEditPhone" placeholder="010-0000-0000">
+      <input type="tel" id="pendingEditPhone" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneInput(this)">
       <label>성별</label>
       <select id="pendingEditGender"></select>
       <label>근무 장소</label>
