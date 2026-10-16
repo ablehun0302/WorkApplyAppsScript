@@ -16,11 +16,11 @@
         <input type="text" id="nameInput" required>
 
         <label>연락처</label>
-        <input type="tel" id="phoneInput" required>
+        <input type="tel" id="phoneInput" required placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneInput(this)">
 
         <label>생년월일 6자리 (선택)</label>
         <p class="hint">신분증을 올리면 자동으로 읽어 채웁니다.</p>
-        <input type="text" id="birthInput" inputmode="numeric" maxlength="6">
+        <input type="text" id="birthInput" inputmode="numeric" maxlength="6" oninput="formatPinInput(this)">
         <button type="button" class="secondary" onclick="checkExistingFiles()">기존 파일 확인</button>
         <p class="week-title">파일이 없는 항목은 새로 추가되고, 기존에 올린 파일이 있는 항목은 새로 올린 파일로 교체됩니다.</p>
 
