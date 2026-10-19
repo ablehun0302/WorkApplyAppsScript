@@ -361,8 +361,8 @@ function nameWithBirth_(name, pin) {
 let currentLocationFilter = '전체';
 // 배치판 복사 텍스트에 생년월일을 넣을지 여부. 켜고 끌 때 배치판을 다시 그리면 펼쳐둔
 // 날짜 카드가 접히므로, 렌더 시점에 두 가지 텍스트를 만들어 두고 textarea 값만 바꾼다.
-let includeBirthInCopy = false;
-let shiftTextCache = {}; // taId -> { withBirth, withoutBirth }
+let birthInCopyDates = new Set(); // 복사 텍스트에 생년월일을 넣는 날짜(dateStr)
+let shiftTextCache = {}; // taId(text_날짜) 또는 시프트별 조각(text_날짜_시프트) -> { withBirth, withoutBirth }
 let adminAuthenticated = false;
 let adminPassword = ''; // 관리자 전용 서버 함수 호출 시 매번 함께 보내 서버에서 재검증
 
@@ -475,12 +475,11 @@ function copyTextArea(id, msgId) {
   }
 }
 
-function toggleBirthInCopy(on) {
-  includeBirthInCopy = on;
-  Object.keys(shiftTextCache).forEach(taId => {
-    const el = document.getElementById(taId);
-    if (el) el.value = on ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
-  });
+function toggleBirthInCopy(dateStr, on) {
+  if (on) birthInCopyDates.add(dateStr); else birthInCopyDates.delete(dateStr);
+  const taId = `text_${dateStr}`;
+  const el = document.getElementById(taId);
+  if (el) el.value = on ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
 }
 
 
@@ -2717,18 +2716,11 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     </div>`;
   }
 
-  const taId = `text_${dateStr}_${shift}`;
-  const msgId = `copymsg_${dateStr}_${shift}`;
-  shiftTextCache[taId] = {
+  // 복사 텍스트 칸은 buildAssignBoard가 날짜마다 주간·야간을 합쳐 하나로 그린다.
+  shiftTextCache[`text_${dateStr}_${shift}`] = {
     withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey),
     withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey)
   };
-  const previewText = includeBirthInCopy ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
-  html += `<div class="text-preview-wrap">
-    <textarea id="${taId}" readonly>${previewText}</textarea>
-    <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
-    <span class="copy-msg" id="${msgId}"></span>
-  </div>`;
 
   html += '</div>';
   return html;
@@ -2739,7 +2731,6 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
   let html = '<div class="admin-section-title">날짜별 배치판</div>';
   const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
-  html += `<div class="period-caption"><label style="display:inline-flex; align-items:center; gap:6px; margin:0; font-size:12px; font-weight:400; color:inherit; cursor:pointer;"><input type="checkbox" style="width:auto; margin:0;" onchange="toggleBirthInCopy(this.checked)" ${includeBirthInCopy ? 'checked' : ''}> 복사 텍스트에 생년월일 포함</label></div>`;
 
   html += '<div class="assign-board-grid">';
   allDates.forEach(d => {
@@ -2758,6 +2749,22 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
     html += `<div class="assign-date-body">`;
     html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
     html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
+    const taId = `text_${dateStr}`;
+    const msgId = `copymsg_${dateStr}`;
+    const dayText = shiftTextCache[`text_${dateStr}_day`];
+    const nightText = shiftTextCache[`text_${dateStr}_night`];
+    shiftTextCache[taId] = {
+      withBirth: dayText.withBirth + '\n\n' + nightText.withBirth,
+      withoutBirth: dayText.withoutBirth + '\n\n' + nightText.withoutBirth
+    };
+    const withBirth = birthInCopyDates.has(dateStr);
+    const previewText = withBirth ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
+    html += `<div class="text-preview-wrap">
+      <textarea id="${taId}" readonly>${previewText}</textarea>
+      <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
+      <label style="display:inline-flex; align-items:center; gap:6px; margin:0 0 0 8px; font-size:12px; font-weight:400; color:inherit; cursor:pointer;"><input type="checkbox" style="width:auto; margin:0;" onchange="toggleBirthInCopy('${dateStr}', this.checked)" ${withBirth ? 'checked' : ''}> 생년월일 포함</label>
+      <span class="copy-msg" id="${msgId}"></span>
+    </div>`;
     html += `</div>`;
     html += `</div>`;
   });

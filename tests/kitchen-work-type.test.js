@@ -603,6 +603,34 @@ test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다
   assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '생년월일 포함 복사 텍스트');
 });
 
+test('배치판: 날짜마다 주간·야간 복사 텍스트를 한 칸에 합친다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const nightAssign = { date: '2026-10-08', shift: 'night', key: 'k2', name: '이야간', gender: '여', floor: '2층', transport: '', location: OTHER };
+  const html = v.W("buildAssignBoard([new Date(2026, 9, 8)], {}, [" + JSON.stringify(kitchenAssign) + ', ' + JSON.stringify(nightAssign) + "], [], null, " + REC_BY_KEY + ", { k1: '900101' }, {}, {}, new Set())");
+  assert.strictEqual(html.split('<textarea').length - 1, 1, '날짜당 텍스트 칸 하나');
+  assert.ok(html.indexOf('id="text_2026-10-08"') > -1, html);
+  const text = v.W("shiftTextCache['text_2026-10-08'].withoutBirth");
+  assert.ok(text.indexOf('10/8(목) 주간') === 0, text);
+  assert.ok(text.indexOf('남1.김주방_1층 (파트 10~15)') < text.indexOf('10/8(목) 야간'), text);
+  assert.ok(text.indexOf('여1.이야간_2층') > text.indexOf('10/8(목) 야간'), text);
+  assert.ok(v.W("shiftTextCache['text_2026-10-08'].withBirth").indexOf('남1.김주방 900101_1층') > -1, '생년월일 포함');
+});
+
+test('배치판: 생년월일 포함 선택은 날짜마다 복사 버튼 옆에 따로 있다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const board = () => v.W("buildAssignBoard([new Date(2026, 9, 8), new Date(2026, 9, 9)], {}, [" + JSON.stringify(kitchenAssign) + ', ' + JSON.stringify(Object.assign({}, kitchenAssign, { date: '2026-10-09' })) + "], [], null, " + REC_BY_KEY + ", { k1: '900101' }, {}, {}, new Set())");
+  const card = (html, dateStr) => html.slice(html.indexOf('id="text_' + dateStr + '"'), html.indexOf('id="copymsg_' + dateStr + '"'));
+  let html = board();
+  assert.strictEqual(html.split('toggleBirthInCopy(').length - 1, 2, '날짜마다 하나');
+  assert.ok(card(html, '2026-10-08').indexOf('toggleBirthInCopy(\'2026-10-08\'') > -1, '복사 버튼 옆');
+  v.W("toggleBirthInCopy('2026-10-08', true)");
+  html = board();
+  assert.ok(card(html, '2026-10-08').indexOf('남1.김주방 900101_1층') > -1, '선택한 날짜는 생년월일 포함');
+  assert.ok(/ checked>/.test(card(html, '2026-10-08')), '다시 그려도 선택 유지');
+  assert.strictEqual(card(html, '2026-10-09').indexOf('900101'), -1, '다른 날짜는 그대로');
+  assert.ok(!/ checked>/.test(card(html, '2026-10-09')), '다른 날짜는 선택 안 됨');
+});
+
 test('배치정보: 주방보조는 근무 현장 목록에서 고른다', () => {
   const v = loadAdminView('');
   assert.deepStrictEqual(JSON.parse(v.W('JSON.stringify(floorsFor(KITCHEN_LOCATION))')),
