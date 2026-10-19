@@ -299,7 +299,7 @@ function cleanupDefaultSheets_(ss) {
   });
 }
 
-const DATA_HEADERS = ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent'];
+const DATA_HEADERS = ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent', 'region'];
 
 function getDataSheet_() {
   const sheet = getOrCreateSheet_('Data', DATA_HEADERS);
@@ -616,6 +616,38 @@ function batchSetGender(list, adminPw) {
   list.forEach(item => {
     const row = keyToRow[item.key];
     if (row) sheet.getRange(row, 11).setValue(item.gender || '');
+  });
+  return true;
+}
+
+// 관리자가 기록하는 지역(Data M열). 신청 저장은 A~L열만 덮어쓰므로 신청이 바뀌어도 유지된다.
+// M1 머리글이 없는 기존 시트에는 처음 쓸 때 채운다.
+const REGION_COL = 13;
+function ensureRegionHeader_(sheet) {
+  if (!sheet.getRange(1, REGION_COL).getValue()) sheet.getRange(1, REGION_COL).setValue('region');
+}
+
+function setRegion(key, region, adminPw) {
+  requireAdmin_(adminPw);
+  const sheet = getDataSheet_();
+  const row = findRow_(sheet, 0, key);
+  if (row === -1) return false;
+  ensureRegionHeader_(sheet);
+  sheet.getRange(row, REGION_COL).setValue(String(region || '').trim());
+  return true;
+}
+
+// 여러 명의 지역을 한 번에 일괄 저장
+function batchSetRegions(list, adminPw) {
+  requireAdmin_(adminPw);
+  const sheet = getDataSheet_();
+  const data = sheet.getDataRange().getValues();
+  const keyToRow = {};
+  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+  ensureRegionHeader_(sheet);
+  list.forEach(item => {
+    const row = keyToRow[item.key];
+    if (row) sheet.getRange(row, REGION_COL).setValue(String(item.region || '').trim());
   });
   return true;
 }
@@ -957,6 +989,7 @@ function getAdminData(adminPw) {
       gender: data[i][9] || '',
       adminGender: data[i][10] || '',
       adConsent: data[i][11] || '',
+      region: data[i][12] || '',
       sortOrder: orderByKey[data[i][0]] || 0
     });
   }

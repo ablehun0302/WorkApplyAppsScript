@@ -595,6 +595,20 @@ test('배치 문자: 주방보조 주간 배치의 이름 줄 끝에 근무형�
   assert.strictEqual(text(Object.assign({}, kitchenAssign, { key: 'gone' }), REC_BY_KEY).indexOf('파트'), -1, '레코드가 없는 배치');
 });
 
+test('배치 문자: 배치정보가 "배치"면 이름 뒤 "_배치"를 붙이지 않는다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const male = Object.assign({}, kitchenAssign, { floor: '배치', location: OTHER, isEducation: true });
+  const female = Object.assign({}, kitchenAssign, { key: 'k2', name: '이여자', gender: '여', floor: '배치', location: OTHER });
+  const text = v.W("buildShiftText('2026-10-08', '주간', 1, 1, [" + JSON.stringify(male) + '], [' + JSON.stringify(female) + "], { k1: '900101' }, false)");
+  assert.ok(text.indexOf('남1.김주방■교육') > -1, text);
+  assert.ok(text.indexOf('여1.이여자') > -1, text);
+  assert.strictEqual(text.indexOf('배치'), -1, text);
+  const withBirth = v.W("buildShiftText('2026-10-08', '주간', 1, 0, [" + JSON.stringify(male) + "], [], { k1: '900101' }, true)");
+  assert.ok(withBirth.indexOf('남1.김주방 900101■교육') > -1, withBirth);
+  const other = Object.assign({}, male, { floor: '1층', isEducation: false });
+  assert.ok(v.W("buildShiftText('2026-10-08', '주간', 1, 0, [" + JSON.stringify(other) + "], [], { k1: '900101' }, false)").indexOf('남1.김주방_1층') > -1, '다른 배치정보는 그대로');
+});
+
 test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다', () => {
   const v = loadAdminView('', [kitchenWorker]);
   const html = v.W("buildShiftBlock('2026-10-08', 'day', [], [" + JSON.stringify(kitchenAssign) + "], null, null, " + REC_BY_KEY + ", { k1: '900101' }, {})");
@@ -697,6 +711,83 @@ test('배치판: 다른 근무지 탭과 전체 탭은 그대로 성별로 묶�
     const html = v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, {}, {})");
     assert.ok(html.indexOf('남1.') > -1 && html.indexOf('global-target-male') > -1, tab);
   });
+});
+
+// ---- 신청자 목록의 지역(Data M열) 수정 ----
+const regionWorker = Object.assign({}, kitchenWorker, { region: '청주 "북부"' });
+const noRegionWorker = Object.assign({}, otherWorker, { shifts: [{ date: '2026-10-08', day: true, night: false }] });
+const APPLICANTS = "buildApplicantTable(lastRecords, new Set(['2026-10-08']), '1주차', '10/5', '10/11')";
+
+// 서버 호출을 기록하고, 성공 핸들러를 바로 실행해 이어지는 호출까지 따라가게 한다.
+function chainServerCalls(v) {
+  v.W(`window.__calls = []; window.__cb = null;
+    google.script.run = new Proxy({}, { get: (t, fn) => fn === 'withSuccessHandler' ? (cb) => { window.__cb = cb; return google.script.run; }
+      : fn === 'withFailureHandler' ? () => google.script.run
+      : (...a) => { window.__calls.push({ fn, a }); const cb = window.__cb; window.__cb = null; if (cb) cb(); } });
+    loadAdmin = function() { window.__calls.push({ fn: 'loadAdmin', a: [] }); };`);
+  return () => JSON.parse(v.W('JSON.stringify(window.__calls)'));
+}
+
+test('신청자 목록: 지역 입력칸에 저장된 값을 넣고, 값에 따옴표가 있어도 속성이 깨지지 않는다', () => {
+  const v = loadAdminView('', [regionWorker, noRegionWorker]);
+  const html = v.W(APPLICANTS);
+  assert.ok(html.indexOf('<th>지역</th>') > -1, html);
+  const input = (key) => html.slice(html.indexOf('id="regionadmin_' + key + '"'), html.indexOf('>', html.indexOf('id="regionadmin_' + key + '"')));
+  assert.ok(input('k1').indexOf('class="global-region-input"') > -1, input('k1'));
+  assert.ok(input('k1').indexOf('data-key="k1"') > -1);
+  assert.ok(input('k1').indexOf('value="청주 &quot;북부&quot;"') > -1, input('k1'));
+  assert.ok(input('k1').indexOf('data-original="청주 &quot;북부&quot;"') > -1, input('k1'));
+  assert.ok(input('k2').indexOf('value=""') > -1 && input('k2').indexOf('data-original=""') > -1, input('k2'));
+});
+
+test('신청자 목록: 신청자가 없을 때 안내 행이 표 칸 수와 맞는다', () => {
+  const v = loadAdminView('', []);
+  assert.ok(v.W(APPLICANTS).indexOf('colspan="11"') > -1);
+});
+
+test('신청자 목록: 행 저장은 성별 → 배치 장소 → 지역 순으로 저장한 뒤 화면을 새로 불러온다', () => {
+  const v = loadAdminView('', [regionWorker]);
+  const calls = chainServerCalls(v);
+  v.W("adminPassword = 'pw'");
+  v.els.genderadmin_k1.value = '여';
+  v.els.locadmin_k1.value = KITCHEN;
+  v.els.regionadmin_k1.value = '음성';
+  v.W("saveAdminRow('k1', 'genderadmin_k1', 'locadmin_k1', 'regionadmin_k1')");
+  same(calls(), [
+    { fn: 'setAdminGender', a: ['k1', '여', 'pw'] },
+    { fn: 'setAdminLocation', a: ['k1', KITCHEN, 'pw'] },
+    { fn: 'setRegion', a: ['k1', '음성', 'pw'] },
+    { fn: 'loadAdmin', a: [] }
+  ]);
+});
+
+test('신청자 목록: 선택 일괄저장은 체크한 사람의 배치 장소와 지역을 함께 저장한다', () => {
+  const v = loadAdminView('', [regionWorker, noRegionWorker]);
+  const calls = chainServerCalls(v);
+  v.W("adminPassword = 'pw'");
+  v.els.applicantTable_1주차.querySelectorAll = () => [{ dataset: { key: 'k1' } }, { dataset: { key: 'k2' } }];
+  v.els.locadmin_k1.value = KITCHEN; v.els.regionadmin_k1.value = '음성';
+  v.els.locadmin_k2.value = OTHER; v.els.regionadmin_k2.value = '';
+  v.W("batchSaveApplicantLocations('applicantTable_1주차')");
+  same(calls(), [
+    { fn: 'batchSetLocations', a: [[{ key: 'k1', location: KITCHEN }, { key: 'k2', location: OTHER }], 'pw'] },
+    { fn: 'batchSetRegions', a: [[{ key: 'k1', region: '음성' }, { key: 'k2', region: '' }], 'pw'] },
+    { fn: 'loadAdmin', a: [] }
+  ]);
+});
+
+test('전체 저장: 바뀐 지역 입력만 모아 한 번에 저장한다', () => {
+  const v = loadAdminView('', [regionWorker, noRegionWorker]);
+  const calls = chainServerCalls(v);
+  v.W("adminPassword = 'pw'");
+  v.W(`document.querySelectorAll = (q) => q === '.global-region-input'
+    ? [{ value: '음성', dataset: { key: 'k1', original: '청주' } }, { value: '진천', dataset: { key: 'k2', original: '진천' } }, { value: '', dataset: { key: 'k3', original: '청주' } }]
+    : [];`);
+  v.W('saveAllOnScreen()');
+  same(calls(), [
+    { fn: 'batchSetRegions', a: [[{ key: 'k1', region: '음성' }, { key: 'k3', region: '' }], 'pw'] },
+    { fn: 'loadAdmin', a: [] }
+  ]);
 });
 
 console.log('\n' + passed + '개 통과');
