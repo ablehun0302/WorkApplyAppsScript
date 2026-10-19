@@ -685,11 +685,23 @@ test('배치 문자: 포장우리와도 같은 방식이고, 배치 없는 칸�
   const v = loadAdminView('');
   v.W("currentLocationFilter = '" + PACK + "'");
   v.W("buildShiftBlock('2026-10-08', 'day', [], [], null, null, {}, {}, {})");
-  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth"), '10/8(목) 주간\n(배치 없음)');
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth"), '10/8(목) 주간');
   const packed = [Object.assign(logiAssign('p1', '홍포장', '남', '원료'), { location: PACK }), Object.assign(logiAssign('p2', '강포장', '여', '포장'), { location: PACK })];
   v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(packed) + ", null, null, {}, { p1: '900101', p2: '850505' }, {})");
   assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withBirth"),
     '10/8(목) 주간\n포장1 원료1 (현재 2명)\n\n여1.강포장 850505_포장\n\n남1.홍포장 900101_원료');
+});
+
+test('배치 문자: 성별 묶음은 목표와 현재가 같으면 목표만 쓰고, 빈 성별의 "배치 없음" 줄은 쓰지 않는다', () => {
+  const v = loadAdminView('');
+  const m = { date: '2026-10-08', shift: 'day', key: 'm1', name: '홍남', gender: '남', floor: '1층', transport: '', location: OTHER };
+  const text = (target, assigns) => {
+    v.W("currentLocationFilter = '" + OTHER + "'");
+    v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(assigns) + ", " + JSON.stringify(target) + ", null, {}, {}, {})");
+    return v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  };
+  assert.strictEqual(text({ maleTarget: '1', femaleTarget: '0' }, [m]), '10/8(목) 주간\n남1 여0\n\n남1.홍남_1층');
+  assert.strictEqual(text({ maleTarget: 2, femaleTarget: 0 }, [m]), '10/8(목) 주간\n남2 여0(현재 남1 여0)\n\n남1.홍남_1층');
 });
 
 test('배치판: 물류우리와 탭은 목록도 배치정보로 묶고 성별 목표 입력은 없다', () => {
