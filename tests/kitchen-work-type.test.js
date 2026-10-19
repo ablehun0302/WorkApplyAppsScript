@@ -740,6 +740,41 @@ test('배치 문자: BGF푸드 탭이 아니면 지역·전화번호를 붙이�
   });
 });
 
+// ---- 델몬트_원남: 배치정보는 기본값, 복사 텍스트는 "성별번호.이름_지역" ----
+const DEL = '델몬트_원남';
+const delAssign = (key, name, gender, extra) => Object.assign({ date: '2026-10-08', shift: 'day', key, name, gender, floor: '배치', transport: '버스', location: DEL }, extra);
+const DEL_RECS = "{ d1: { phone: '010-1111-2222', region: '증평' }, d2: { phone: '010-3333-4444', region: '' } }";
+
+test('델몬트_원남: 배치정보 선택지는 기본값(배치·기타)이다', () => {
+  const v = loadAdminView('');
+  assert.deepStrictEqual(JSON.parse(v.W("JSON.stringify(floorsFor('" + DEL + "'))")), ['배치', '기타']);
+});
+
+test('배치 문자: 델몬트_원남은 이름 뒤에 _지역만 붙인다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + DEL + "'");
+  const assigns = [delAssign('d1', '김남자', '남', { isEducation: true }), delAssign('d2', '박남자', '남'), delAssign('d3', '이여자', '여')];
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(assigns) + ", null, null, " + DEL_RECS + ", { d1: '900101' }, {})");
+  const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  assert.ok(text.indexOf('남1.김남자_증평■교육') > -1, text);
+  const lines = text.split('\n');
+  assert.ok(lines.indexOf('남2.박남자') > -1, '지역이 비면 _도 붙이지 않는다: ' + text);
+  assert.ok(lines.indexOf('여1.이여자') > -1, '기록이 없는 사람도 _를 붙이지 않는다: ' + text);
+  assert.strictEqual(text.indexOf('배치'), -1, '배치정보는 보이지 않는다: ' + text);
+  assert.strictEqual(text.indexOf('버스'), -1, '이동수단은 텍스트에 넣지 않는다: ' + text);
+  assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김남자 900101_증평■교육') > -1, '생년월일 포함');
+});
+
+test('배치 문자: 델몬트_원남 탭이 아니면 지역을 붙이지 않는다', () => {
+  const v = loadAdminView('');
+  ['전체', OTHER].forEach((tab) => {
+    v.W("currentLocationFilter = '" + tab + "'");
+    v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify([delAssign('d1', '김남자', '남', { floor: '증평' })]) + ", null, null, " + DEL_RECS + ", {}, {})");
+    const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+    assert.ok(text.indexOf('남1.김남자_증평_버스') > -1, tab + ': ' + text);
+  });
+});
+
 // ---- 신청자 목록의 지역(Data M열) 수정 ----
 const regionWorker = Object.assign({}, kitchenWorker, { region: '청주 "북부"' });
 const noRegionWorker = Object.assign({}, otherWorker, { shifts: [{ date: '2026-10-08', day: true, night: false }] });

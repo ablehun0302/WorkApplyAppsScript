@@ -279,12 +279,11 @@ function addScrollArrows(containerEl) {
 const DEFAULT_FLOORS = ['배치','기타'];
 const FLOORS_BY_LOCATION = {
   '신세계푸드 원남': ['1층','2층','3층','입출하','미화','날인실','기타'],
-  '델몬트_원남': ['증평','음성','괴산','청주','충주','금왕','진천','기타'],
   '포장우리와_금왕': ['포장','원료','기타'],
   '물류우리와_금왕': ['검수','주간지게','야간지게','재적재','기타'],
   '주방보조_전국': ['솔브레인 공주','네이버데이터센터','한라스택폴','현대프리미엄아울렛 대전','노바렉스','현대백화점 충청','기타']
 };
-const TRANSPORTS_BY_LOCATION = { '델몬트_원남': ['버스','자차'] };
+const TRANSPORTS_BY_LOCATION = {};
 function floorsFor(loc) {
   if (loc === '전체') return Array.from(new Set([].concat(...Object.values(FLOORS_BY_LOCATION), DEFAULT_FLOORS)));
   return FLOORS_BY_LOCATION[loc] || DEFAULT_FLOORS;
@@ -452,12 +451,17 @@ function textFloorSuffix_(a) {
   const label = floorLabel(Object.assign({}, a, { floor: a.floor === '배치' ? '' : a.floor }));
   return label ? '_' + label : '';
 }
-// 복사 텍스트에서 "_층" 대신 "/지역/전화번호"를 이름 뒤에 붙이는 업체. 그 업체 탭에서만 적용된다.
-const CONTACT_TEXT_LOCATIONS = ['BGF푸드_진천'];
 function contactSuffix_(a, recByKey) {
   const rec = (recByKey && recByKey[a.key]) || {};
   return '/' + (rec.region || '') + '/' + (rec.phone || '');
 }
+// 복사 텍스트의 "_지역"(Data 시트 지역). 지역이 비어 있으면 "_"도 붙이지 않는다.
+function regionSuffix_(a, recByKey) {
+  const rec = (recByKey && recByKey[a.key]) || {};
+  return rec.region ? '_' + rec.region : '';
+}
+// 복사 텍스트에서 "_층_이동수단" 대신 다른 꼬리를 이름 뒤에 붙이는 업체. 그 업체 탭에서만 적용된다.
+const TEXT_TAIL_BY_LOCATION = { 'BGF푸드_진천': contactSuffix_, '델몬트_원남': regionSuffix_ };
 // 배치 문자·배치판 목록의 이름 줄 끝에 붙이는 " (파트 10~15)". 주방보조로 배치된 주간 근무에만 붙는다.
 function kitchenAssignSuffix(a, recByKey) {
   if (a.shift !== 'day' || assignmentLocation(a, recByKey) !== KITCHEN_LOCATION) return '';
@@ -466,9 +470,9 @@ function kitchenAssignSuffix(a, recByKey) {
   return label ? ' (' + label + ')' : '';
 }
 // floorGroups(groupByFloor_ 결과)가 있으면 성별 대신 배치정보별로 묶은 문자를 만든다.
-function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey, floorGroups, withContact) {
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey, floorGroups, textTail) {
   const lines = [];
-  const nameTail = (a) => withContact ? contactSuffix_(a, recByKey) : textFloorSuffix_(a);
+  const nameTail = (a) => textTail ? textTail(a, recByKey) : textFloorSuffix_(a);
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
   if (floorGroups) {
     if (floorGroups.length === 0) lines.push('(배치 없음)');
@@ -2815,10 +2819,10 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   }
 
   // 복사 텍스트 칸은 buildAssignBoard가 날짜마다 주간·야간을 합쳐 하나로 그린다.
-  const withContact = CONTACT_TEXT_LOCATIONS.indexOf(currentLocationFilter) > -1;
+  const textTail = TEXT_TAIL_BY_LOCATION[currentLocationFilter];
   shiftTextCache[`text_${dateStr}_${shift}`] = {
-    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey, floorGroups, withContact),
-    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey, floorGroups, withContact)
+    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey, floorGroups, textTail),
+    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey, floorGroups, textTail)
   };
 
   html += '</div>';
