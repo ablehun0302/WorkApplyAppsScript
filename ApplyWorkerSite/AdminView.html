@@ -279,12 +279,11 @@ function addScrollArrows(containerEl) {
 const DEFAULT_FLOORS = ['배치','기타'];
 const FLOORS_BY_LOCATION = {
   '신세계푸드 원남': ['1층','2층','3층','입출하','미화','날인실','기타'],
-  '델몬트_원남': ['증평','음성','괴산','청주','충주','금왕','진천','기타'],
   '포장우리와_금왕': ['포장','원료','기타'],
   '물류우리와_금왕': ['검수','주간지게','야간지게','재적재','기타'],
   '주방보조_전국': ['솔브레인 공주','네이버데이터센터','한라스택폴','현대프리미엄아울렛 대전','노바렉스','현대백화점 충청','기타']
 };
-const TRANSPORTS_BY_LOCATION = { '델몬트_원남': ['버스','자차'] };
+const TRANSPORTS_BY_LOCATION = {};
 function floorsFor(loc) {
   if (loc === '전체') return Array.from(new Set([].concat(...Object.values(FLOORS_BY_LOCATION), DEFAULT_FLOORS)));
   return FLOORS_BY_LOCATION[loc] || DEFAULT_FLOORS;
@@ -292,6 +291,31 @@ function floorsFor(loc) {
 function transportsFor(loc) {
   if (loc === '전체') return Array.from(new Set([].concat(...Object.values(TRANSPORTS_BY_LOCATION))));
   return TRANSPORTS_BY_LOCATION[loc] || [];
+}
+// 배치판 목록·복사 텍스트를 성별(남/여)이 아니라 배치정보로 묶어 보여주는 업체. 그 업체 탭에서만 적용된다.
+const FLOOR_GROUPED_LOCATIONS = ['포장우리와_금왕','물류우리와_금왕'];
+// 배치정보 순으로 정렬된 배치 목록을 같은 배치정보끼리 묶는다. 묶음 순서는 목록에 처음 나온 순서.
+function groupByFloor_(list) {
+  const groups = [];
+  list.forEach(a => {
+    let g = groups.find(x => x.floor === a.floor);
+    if (!g) groups.push(g = { floor: a.floor, list: [] });
+    g.list.push(a);
+  });
+  return groups;
+}
+// 묶음 순서대로 성별마다 이어 매긴 번호("남1", "여2")를 배치 → 번호 맵으로 돌려준다.
+function genderSeq_(floorGroups) {
+  const count = {}, seq = new Map();
+  floorGroups.forEach(g => g.list.forEach(a => {
+    count[a.gender] = (count[a.gender] || 0) + 1;
+    seq.set(a, a.gender + count[a.gender]);
+  }));
+  return seq;
+}
+// "검수2 주간지게1" 처럼 배치정보별 인원수
+function floorSummary_(floorGroups) {
+  return floorGroups.map(g => g.floor + g.list.length).join(' ');
 }
 // '기타' 선택 시 내용을 직접 입력받아 그 글자를 층 값으로 쓴다. 취소하면 null, 비워두면 '기타'.
 // 입력값이 HTML/onclick 속성에 그대로 들어가므로 따옴표·꺾쇠는 제거한다.
@@ -361,8 +385,8 @@ function nameWithBirth_(name, pin) {
 let currentLocationFilter = '전체';
 // 배치판 복사 텍스트에 생년월일을 넣을지 여부. 켜고 끌 때 배치판을 다시 그리면 펼쳐둔
 // 날짜 카드가 접히므로, 렌더 시점에 두 가지 텍스트를 만들어 두고 textarea 값만 바꾼다.
-let includeBirthInCopy = false;
-let shiftTextCache = {}; // taId -> { withBirth, withoutBirth }
+let birthInCopyDates = new Set(); // 복사 텍스트에 생년월일을 넣는 날짜(dateStr)
+let shiftTextCache = {}; // taId(text_날짜) 또는 시프트별 조각(text_날짜_시프트) -> { withBirth, withoutBirth }
 let adminAuthenticated = false;
 let adminPassword = ''; // 관리자 전용 서버 함수 호출 시 매번 함께 보내 서버에서 재검증
 
@@ -422,6 +446,22 @@ function floorRank(floor, loc) {
 function floorLabel(a) {
   return [a.floor, a.transport].filter(Boolean).join('_');
 }
+// 복사 텍스트의 "_층_이동수단" 부분. 배치정보가 기본값 '배치'면 층은 빼고, 남는 게 없으면 "_"도 붙이지 않는다.
+function textFloorSuffix_(a) {
+  const label = floorLabel(Object.assign({}, a, { floor: a.floor === '배치' ? '' : a.floor }));
+  return label ? '_' + label : '';
+}
+function contactSuffix_(a, recByKey) {
+  const rec = (recByKey && recByKey[a.key]) || {};
+  return '/' + (rec.region || '') + '/' + (rec.phone || '');
+}
+// 복사 텍스트의 "_지역"(Data 시트 지역). 지역이 비어 있으면 "_"도 붙이지 않는다.
+function regionSuffix_(a, recByKey) {
+  const rec = (recByKey && recByKey[a.key]) || {};
+  return rec.region ? '_' + rec.region : '';
+}
+// 복사 텍스트에서 "_층_이동수단" 대신 다른 꼬리를 이름 뒤에 붙이는 업체. 그 업체 탭에서만 적용된다.
+const TEXT_TAIL_BY_LOCATION = { 'BGF푸드_진천': contactSuffix_, '델몬트_원남': regionSuffix_ };
 // 배치 문자·배치판 목록의 이름 줄 끝에 붙이는 " (파트 10~15)". 주방보조로 배치된 주간 근무에만 붙는다.
 function kitchenAssignSuffix(a, recByKey) {
   if (a.shift !== 'day' || assignmentLocation(a, recByKey) !== KITCHEN_LOCATION) return '';
@@ -429,9 +469,27 @@ function kitchenAssignSuffix(a, recByKey) {
   const label = kitchenShiftLabel(rec && (rec.shifts || []).find(s => s.date === a.date));
   return label ? ' (' + label + ')' : '';
 }
-function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey) {
+// floorGroups(groupByFloor_ 결과)가 있으면 성별 대신 배치정보별로 묶은 문자를 만든다.
+function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey, floorGroups, textTail) {
   const lines = [];
+  const nameTail = (a) => textTail ? textTail(a, recByKey) : textFloorSuffix_(a);
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
+  if (floorGroups) {
+    if (floorGroups.length === 0) lines.push('(배치 없음)');
+    else lines.push(`${floorSummary_(floorGroups)} (현재 ${floorGroups.reduce((n, g) => n + g.list.length, 0)}명)`);
+    const seq = genderSeq_(floorGroups);
+    floorGroups.forEach(g => {
+      lines.push('');
+      g.list.forEach(a => {
+        const edu = a.isEducation ? '■교육' : '';
+        const nw = a.isNew ? ' (신)●' : '';
+        const ww = a.isWomenWage ? ' ••여임금' : '';
+        const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
+        lines.push(`${seq.get(a)}.${dispName}${textFloorSuffix_(a)}${edu}${nw}${ww}`);
+      });
+    });
+    return lines.join('\n');
+  }
   lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
   lines.push('');
   if (maleList.length === 0) lines.push('(남 배치 없음)');
@@ -440,7 +498,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
-    lines.push(`남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
+    lines.push(`남${idx+1}.${dispName}${nameTail(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
   lines.push('');
   if (femaleList.length === 0) lines.push('(여 배치 없음)');
@@ -449,7 +507,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const nw = a.isNew ? ' (신)●' : '';
     const ww = a.isWomenWage ? ' ••여임금' : '';
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
-    lines.push(`여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
+    lines.push(`여${idx+1}.${dispName}${nameTail(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
   return lines.join('\n');
 }
@@ -475,12 +533,11 @@ function copyTextArea(id, msgId) {
   }
 }
 
-function toggleBirthInCopy(on) {
-  includeBirthInCopy = on;
-  Object.keys(shiftTextCache).forEach(taId => {
-    const el = document.getElementById(taId);
-    if (el) el.value = on ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
-  });
+function toggleBirthInCopy(dateStr, on) {
+  if (on) birthInCopyDates.add(dateStr); else birthInCopyDates.delete(dateStr);
+  const taId = `text_${dateStr}`;
+  const el = document.getElementById(taId);
+  if (el) el.value = on ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
 }
 
 
@@ -847,6 +904,12 @@ function saveAllOnScreen() {
   });
   const locationList = Object.entries(locationMap).map(([key, location]) => ({ key, location }));
 
+  // 지역은 비워서 지우는 것도 변경이므로 값이 빈 문자열이어도 data-original과 다르면 포함한다.
+  const regionList = [];
+  document.querySelectorAll('.global-region-input').forEach(inp => {
+    if (inp.value !== inp.dataset.original) regionList.push({ key: inp.dataset.key, region: inp.value });
+  });
+
   // 목표인원(남/여)은 항상 두 값을 함께 저장해야 하므로, 둘 중 하나라도 바뀐 날짜/시간대만 골라내되
   // 저장할 때는 안 바뀐 값도 현재 화면 값 그대로 함께 보낸다(부분 저장이 없어 보내지 않으면 0으로 덮어써짐).
   const targetMap = {};
@@ -875,6 +938,7 @@ function saveAllOnScreen() {
   const tasks = [];
   if (genderList.length > 0) tasks.push({ fn: 'batchSetGender', arg: genderList });
   if (locationList.length > 0) tasks.push({ fn: 'batchSetLocations', arg: locationList });
+  if (regionList.length > 0) tasks.push({ fn: 'batchSetRegions', arg: regionList });
   if (targetList.length > 0) tasks.push({ fn: 'batchSaveTargets', arg: targetList });
   if (rosterList.length > 0) tasks.push({ fn: 'batchSaveRoster', arg: rosterList });
 
@@ -1603,17 +1667,18 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
     const adminLoc = rec.adminLocation || '';
     const genderRequested = rec.gender || '';
     const genderEffective = rec.adminGender || genderRequested;
-    return { key: rec.key, name: rec.name, phone: rec.phone, cnt, requested, effective: adminLoc || requested, message: rec.message || '', genderEffective };
+    return { key: rec.key, name: rec.name, phone: rec.phone, cnt, requested, effective: adminLoc || requested, message: rec.message || '', genderEffective, region: rec.region || '' };
   }).filter(r => r.cnt > 0).sort((a,b) => (genderRank(a.genderEffective) - genderRank(b.genderEffective)) || a.name.localeCompare(b.name, 'ko'));
 
   const tableId = 'applicantTable_' + label.replace(/\s+/g, '');
   let html = `<div class="admin-section-title">${label} 신청자 목록</div>`;
   html += `<div class="period-caption">${pStart} ~ ${pEnd} · 성별(남→여)·이름순 · 배치 장소는 신청 장소와 다르게 지정할 수 있어요</div>`;
-  html += `<div class="table-wrap" id="${tableId}"><table style="min-width:900px;"><tr><th>선택</th><th>이름</th><th>성별</th><th>신청일수</th><th>연락처</th><th>신청 장소</th><th>배치 장소</th><th>일정</th><th>하고 싶은 말</th><th>저장</th></tr>`;
-  if (rows.length === 0) html += '<tr><td colspan="10" style="text-align:center; color:#999;">신청자 없음</td></tr>';
+  html += `<div class="table-wrap" id="${tableId}"><table style="min-width:900px;"><tr><th>선택</th><th>이름</th><th>성별</th><th>신청일수</th><th>연락처</th><th>신청 장소</th><th>배치 장소</th><th>지역</th><th>일정</th><th>하고 싶은 말</th><th>저장</th></tr>`;
+  if (rows.length === 0) html += '<tr><td colspan="11" style="text-align:center; color:#999;">신청자 없음</td></tr>';
   rows.forEach(r => {
     const selId = 'locadmin_' + r.key;
     const genderSelId = 'genderadmin_' + r.key;
+    const regionInpId = 'regionadmin_' + r.key;
     // select는 selected 옵션이 없으면 브라우저가 첫 옵션을 기본 선택하므로, "전체저장"이 변경 여부를 정확히 판단하려면
     // 실제 화면에 선택될 값을 data-original로 그대로 기록해둔다.
     const locationOriginal = LOCATIONS.indexOf(r.effective) > -1 ? r.effective : LOCATIONS[0];
@@ -1624,9 +1689,10 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
       <td><select id="${genderSelId}" class="global-gender-select" data-key="${r.key}" data-original="${genderOriginal}" style="font-size:12px; padding:4px;">${genderOptions}</select></td>
       <td>${r.cnt}</td><td>${r.phone||'-'}</td><td>${r.requested||'-'}</td>
       <td><select id="${selId}" class="global-location-select" data-key="${r.key}" data-original="${locationOriginal}" style="font-size:12px; padding:4px;">${options}</select></td>
+      <td><input type="text" id="${regionInpId}" class="global-region-input" data-key="${r.key}" data-original="${escapeHtml_(r.region)}" value="${escapeHtml_(r.region)}" placeholder="지역" style="width:80px; font-size:12px; padding:4px;"></td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openAdminEditShifts('${r.key}','${r.name}')">일정수정</button></td>
       <td style="max-width:160px; font-size:12px; white-space:pre-wrap;">${r.message ? r.message : '-'}</td>
-      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #2f6fed; background:#2f6fed; color:white; cursor:pointer;" onclick="saveAdminRow('${r.key}','${genderSelId}','${selId}')">저장</button></td></tr>`;
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #2f6fed; background:#2f6fed; color:white; cursor:pointer;" onclick="saveAdminRow('${r.key}','${genderSelId}','${selId}','${regionInpId}')">저장</button></td></tr>`;
   });
   html += '</table></div>';
   if (rows.length > 0) {
@@ -1638,13 +1704,19 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
   return html;
 }
 
-function saveAdminRow(key, genderSelId, locSelId) {
+function saveAdminRow(key, genderSelId, locSelId, regionInpId) {
   const gender = document.getElementById(genderSelId).value;
   const location = document.getElementById(locSelId).value;
+  const region = document.getElementById(regionInpId).value;
   adminRun()
     .withSuccessHandler(function() {
       adminRun()
-        .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
+        .withSuccessHandler(function() {
+          adminRun()
+            .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
+            .withFailureHandler(function(err) { alert('지역 저장 오류: ' + err.message); })
+            .setRegion(key, region, adminPassword);
+        })
         .withFailureHandler(function(err) { alert('배치 장소 저장 오류: ' + err.message); })
         .setAdminLocation(key, location, adminPassword);
     })
@@ -1674,13 +1746,20 @@ function batchSaveApplicantLocations(tableId) {
   const checked = container.querySelectorAll('.applicant-check:checked');
   if (checked.length === 0) { alert('저장할 사람을 먼저 체크해주세요.'); return; }
   const list = [];
+  const regionList = [];
   checked.forEach(cb => {
     const key = cb.dataset.key;
     const sel = document.getElementById('locadmin_' + key);
     list.push({ key: key, location: sel.value });
+    regionList.push({ key: key, region: document.getElementById('regionadmin_' + key).value });
   });
   adminRun()
-    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
+    .withSuccessHandler(function() {
+      adminRun()
+        .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
+        .withFailureHandler(function(err) { alert('지역 일괄저장 오류: ' + err.message); })
+        .batchSetRegions(regionList, adminPassword);
+    })
     .withFailureHandler(function(err) { alert('일괄저장 오류: ' + err.message); })
     .batchSetLocations(list, adminPassword);
 }
@@ -2641,39 +2720,61 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
   const femaleList = assignedForSlot.filter(a => a.gender === '여').sort(byFloorThenCount);
   const maleTarget = target ? target.maleTarget : 0;
   const femaleTarget = target ? target.femaleTarget : 0;
+  // 물류·포장우리와 탭은 성별 대신 배치정보로 묶는다(목표 남/여 인원도 의미가 없어 입력칸을 뺀다).
+  const floorGroups = FLOOR_GROUPED_LOCATIONS.indexOf(currentLocationFilter) > -1
+    ? groupByFloor_(assignedForSlot.slice().sort((a,b) => (floorRank(a.floor, locOf(a)) - floorRank(b.floor, locOf(b))) || (genderRank(a.gender) - genderRank(b.gender)) || (cnt(b.key) - cnt(a.key)))) : null;
 
   let html = `<div class="shift-block">`;
   html += `<div class="shift-header-row">
-    <span class="tag ${shiftClass}">${shiftLabel}</span>
+    <span class="tag ${shiftClass}">${shiftLabel}</span>`;
+  if (!floorGroups) html += `
     <span class="target-inputs">
       목표 남<input type="number" min="0" id="mt_${dateStr}_${shift}" class="global-target-male" data-date="${dateStr}" data-shift="${shift}" data-original="${maleTarget}" value="${maleTarget}">
       여<input type="number" min="0" id="ft_${dateStr}_${shift}" class="global-target-female" data-date="${dateStr}" data-shift="${shift}" data-original="${femaleTarget}" value="${femaleTarget}">
       <button onclick="saveTargetClick('${dateStr}','${shift}')">저장</button>
-    </span>
+    </span>`;
+  html += `
   </div>`;
-  html += `<div class="current-line">현재 남${maleList.length} 여${femaleList.length} (신청 ${applicants.length}명)</div>`;
+  html += floorGroups
+    ? `<div class="current-line">현재 ${floorSummary_(floorGroups) || '배치 없음'} (신청 ${applicants.length}명)</div>`
+    : `<div class="current-line">현재 남${maleList.length} 여${femaleList.length} (신청 ${applicants.length}명)</div>`;
 
   html += `<div class="numbered-list" id="numlist_${dateStr}_${shift}">`;
-  html += '<div class="gender-label">남</div>';
-  if (maleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
-  maleList.forEach((a, idx) => {
-    const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
-    const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
-    const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-    const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
-    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
-  });
-  html += '<div class="gender-label">여</div>';
-  if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
-  femaleList.forEach((a, idx) => {
-    const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
-    const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
-    const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-    const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
-    const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
-    html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
-  });
+  if (floorGroups) {
+    if (floorGroups.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
+    const seq = genderSeq_(floorGroups);
+    floorGroups.forEach(g => {
+      html += `<div class="gender-label">${g.floor}</div>`;
+      g.list.forEach(a => {
+        const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
+        const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
+        const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
+        const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+        html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> ${seq.get(a)}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}</label></div>`;
+      });
+    });
+  } else {
+    html += '<div class="gender-label">남</div>';
+    if (maleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
+    maleList.forEach((a, idx) => {
+      const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
+      const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
+      const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
+      const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
+      const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+      html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
+    });
+    html += '<div class="gender-label">여</div>';
+    if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
+    femaleList.forEach((a, idx) => {
+      const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
+      const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
+      const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
+      const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
+      const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+      html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
+    });
+  }
   html += '</div>';
   if (assignedForSlot.length > 0) {
     html += `<div class="batch-row">
@@ -2717,18 +2818,12 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     </div>`;
   }
 
-  const taId = `text_${dateStr}_${shift}`;
-  const msgId = `copymsg_${dateStr}_${shift}`;
-  shiftTextCache[taId] = {
-    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey),
-    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey)
+  // 복사 텍스트 칸은 buildAssignBoard가 날짜마다 주간·야간을 합쳐 하나로 그린다.
+  const textTail = TEXT_TAIL_BY_LOCATION[currentLocationFilter];
+  shiftTextCache[`text_${dateStr}_${shift}`] = {
+    withBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, true, recByKey, floorGroups, textTail),
+    withoutBirth: buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, false, recByKey, floorGroups, textTail)
   };
-  const previewText = includeBirthInCopy ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
-  html += `<div class="text-preview-wrap">
-    <textarea id="${taId}" readonly>${previewText}</textarea>
-    <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
-    <span class="copy-msg" id="${msgId}"></span>
-  </div>`;
 
   html += '</div>';
   return html;
@@ -2739,7 +2834,6 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
   let html = '<div class="admin-section-title">날짜별 배치판</div>';
   const viewLabel = currentLocationFilter === '전체' ? '전체 근무지' : currentLocationFilter;
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
-  html += `<div class="period-caption"><label style="display:inline-flex; align-items:center; gap:6px; margin:0; font-size:12px; font-weight:400; color:inherit; cursor:pointer;"><input type="checkbox" style="width:auto; margin:0;" onchange="toggleBirthInCopy(this.checked)" ${includeBirthInCopy ? 'checked' : ''}> 복사 텍스트에 생년월일 포함</label></div>`;
 
   html += '<div class="assign-board-grid">';
   allDates.forEach(d => {
@@ -2758,6 +2852,22 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
     html += `<div class="assign-date-body">`;
     html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
     html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
+    const taId = `text_${dateStr}`;
+    const msgId = `copymsg_${dateStr}`;
+    const dayText = shiftTextCache[`text_${dateStr}_day`];
+    const nightText = shiftTextCache[`text_${dateStr}_night`];
+    shiftTextCache[taId] = {
+      withBirth: dayText.withBirth + '\n\n' + nightText.withBirth,
+      withoutBirth: dayText.withoutBirth + '\n\n' + nightText.withoutBirth
+    };
+    const withBirth = birthInCopyDates.has(dateStr);
+    const previewText = withBirth ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
+    html += `<div class="text-preview-wrap">
+      <textarea id="${taId}" readonly>${previewText}</textarea>
+      <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
+      <label style="display:inline-flex; align-items:center; gap:6px; margin:0 0 0 8px; font-size:12px; font-weight:400; color:inherit; cursor:pointer;"><input type="checkbox" style="width:auto; margin:0;" onchange="toggleBirthInCopy('${dateStr}', this.checked)" ${withBirth ? 'checked' : ''}> 생년월일 포함</label>
+      <span class="copy-msg" id="${msgId}"></span>
+    </div>`;
     html += `</div>`;
     html += `</div>`;
   });
