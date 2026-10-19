@@ -19,6 +19,7 @@
       <div class="location-tabs" style="margin-bottom:10px;">
         <div class="location-tab" id="subtabBoard" onclick="switchAdminSubView('board')">📋 배치판 보기</div>
         <div class="location-tab" id="subtabHistory" onclick="switchAdminSubView('history')">🗂️ 배치 이력</div>
+        <div class="location-tab" id="subtabAssigned" onclick="switchAdminSubView('assigned')">👷 배치된 근무자</div>
         <div class="location-tab" id="subtabRoster" onclick="switchAdminSubView('roster')">👥 전체신청자 목록</div>
       </div>
       <div id="adminStickyToolbar" style="position:sticky; top:0; z-index:50; background:#f4f5f7; box-shadow:0 2px 4px rgba(0,0,0,0.08);">
@@ -111,6 +112,21 @@
         </div>
         <div id="historyContent"><div class="empty">불러오는 중...</div></div>
       </div>
+
+      <div id="adminAssignedArea" style="display:none;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <label style="font-size:13px; display:flex; align-items:center; gap:4px; white-space:nowrap;">근무지
+            <select id="assignedLocationFilter" onchange="renderAssignedWorkers()" style="font-size:13px; padding:5px 8px;"></select>
+          </label>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="moveAssignedWeek(-1)">◀</button>
+            <span id="assignedWeekLabel" style="font-size:14px; font-weight:700; min-width:140px; text-align:center;"></span>
+            <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="moveAssignedWeek(1)">▶</button>
+          </div>
+          <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="openAssignedDay('', '')">➕ 배치 추가</button>
+        </div>
+        <div id="assignedContent"><div class="empty">불러오는 중...</div></div>
+      </div>
     </div>
   <div id="pastHistoryOverlay" class="edit-overlay" style="display:none;">
     <div class="edit-overlay-card">
@@ -173,6 +189,20 @@
       <button class="secondary" onclick="closeAdminEditOverlay()">취소</button>
       <button class="danger" onclick="cancelWorkerApplicationFromEdit()">근무 취소</button>
       <div id="adminEditMsg"></div>
+    </div>
+  </div>
+  <div id="assignedDayOverlay" class="edit-overlay" style="display:none;">
+    <div class="edit-overlay-card">
+      <div class="edit-overlay-title">하루 배치 수정</div>
+      <div class="period-caption">체크를 풀면 배치 취소, 새로 체크하면 배치 추가입니다. 근무지는 그날 주간·야간에 함께 적용됩니다.</div>
+      <label>근무자</label>
+      <select id="assignedDayKey" onchange="openAssignedDay(this.value, assignedDayDraft.date)"></select>
+      <label>날짜</label>
+      <select id="assignedDayDate" onchange="openAssignedDay(assignedDayDraft.key, this.value)"></select>
+      <div id="assignedDayForm"></div>
+      <button class="primary" onclick="saveAssignedDayEdit()">저장</button>
+      <button class="secondary" onclick="closeAssignedDayOverlay()">닫기</button>
+      <div id="assignedDayMsg"></div>
     </div>
   </div>
   <div id="pendingEditOverlay" class="edit-overlay" style="display:none;">
@@ -491,16 +521,19 @@ function switchAdminSubView(view) {
   localStorage.setItem('lastAdminSubView', view);
   document.getElementById('subtabBoard').classList.toggle('active', view==='board');
   document.getElementById('subtabHistory').classList.toggle('active', view==='history');
+  document.getElementById('subtabAssigned').classList.toggle('active', view==='assigned');
   document.getElementById('subtabRoster').classList.toggle('active', view==='roster');
   document.getElementById('adminBoardArea').style.display = view==='board' ? 'block' : 'none';
   document.getElementById('adminHistoryArea').style.display = view==='history' ? 'block' : 'none';
+  document.getElementById('adminAssignedArea').style.display = view==='assigned' ? 'block' : 'none';
   document.getElementById('adminRosterArea').style.display = view==='roster' ? 'block' : 'none';
   document.getElementById('adminLocationTabs').style.display = view==='board' ? 'block' : 'none';
   ['saveAllBtn','adminAddBtn','dateEditToggleBtn','infoEditToggleBtn'].forEach(id => {
-    document.getElementById(id).style.display = view==='history' ? 'none' : '';
+    document.getElementById(id).style.display = (view==='history' || view==='assigned') ? 'none' : '';
   });
   if (view === 'board') loadAdmin();
   else if (view === 'history') loadAssignHistory();
+  else if (view === 'assigned') loadAssignedWorkers();
   else loadRoster();
 }
 
@@ -1780,6 +1813,241 @@ function renderAssignHistory() {
   content.innerHTML = html;
   addScrollArrows(content);
   applyPendingScrollRestore();
+}
+
+// ---------- 배치된 근무자 (Assign 시트 기준 주간 표 + 하루 배치 수정) ----------
+let assignedRecords = [];
+let assignedAssignments = [];
+let assignedWeekStart = (function() {
+  const d = new Date(); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7); // 이번 주 월요일
+  return d;
+})();
+
+function assignedWeekDateStrs() {
+  const list = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(assignedWeekStart);
+    d.setDate(assignedWeekStart.getDate() + i);
+    list.push(formatDate(d));
+  }
+  return list;
+}
+
+function loadAssignedWorkers() {
+  const content = document.getElementById('assignedContent');
+  content.innerHTML = '<div class="empty">불러오는 중...</div>';
+  const locFilter = document.getElementById('assignedLocationFilter');
+  if (locFilter.options.length === 0) {
+    locFilter.innerHTML = '<option value="">전체</option>' + LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
+  }
+  showLoading();
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword)])
+    .then(function(results) {
+      hideLoading();
+      assignedRecords = results[0] || [];
+      assignedAssignments = results[1] || [];
+      renderAssignedWorkers();
+    })
+    .catch(function(err) {
+      hideLoading();
+      content.innerHTML = '<div class="empty">불러오기 실패: ' + err.message + '</div>';
+    });
+}
+
+function moveAssignedWeek(delta) {
+  assignedWeekStart.setDate(assignedWeekStart.getDate() + delta * 7);
+  renderAssignedWorkers();
+}
+
+// 그 주에 배치 기록이 있는 사람별 행. cells[날짜] = { location, items(주간→야간) }.
+// 근무지 필터를 고르면 그 근무지 날이 하루라도 있는 사람만 남기고, 근무일수도 그 근무지 날만 센다.
+// Data에서 지워진 사람은 배치 행에 남아 있는 이름·성별로 보여준다.
+function buildAssignedRows_(records, assignments, dateStrs, locationFilter) {
+  const recByKey = {};
+  records.forEach(r => { recByKey[r.key] = r; });
+  const weekSet = new Set(dateStrs);
+  const byKey = {};
+  assignments.filter(a => weekSet.has(a.date)).forEach(a => {
+    const rec = recByKey[a.key];
+    const row = byKey[a.key] || (byKey[a.key] = {
+      key: a.key,
+      name: rec ? rec.name : a.name,
+      pin: rec ? (rec.pin || '') : '',
+      phone: rec ? (rec.phone || '') : '',
+      gender: (rec && (rec.adminGender || rec.gender)) || a.gender || '',
+      cells: {}
+    });
+    (row.cells[a.date] = row.cells[a.date] || { location: '', items: [] }).items.push(a);
+  });
+  const rows = Object.values(byKey);
+  rows.forEach(row => {
+    Object.values(row.cells).forEach(cell => {
+      cell.items.sort((x, y) => x.shift === y.shift ? 0 : (x.shift === 'day' ? -1 : 1));
+      cell.location = Array.from(new Set(cell.items.map(a => assignmentLocation(a, recByKey)))).join(' / ');
+    });
+    row.days = Object.values(row.cells).filter(c => !locationFilter || c.location === locationFilter).length;
+  });
+  const genderRank = (g) => g === '남' ? 0 : g === '여' ? 1 : 2;
+  return rows
+    .filter(r => r.days > 0)
+    .sort((a, b) => (genderRank(a.gender) - genderRank(b.gender)) || String(a.name).localeCompare(String(b.name), 'ko'));
+}
+
+function renderAssignedWorkers() {
+  const content = document.getElementById('assignedContent');
+  const locationFilter = document.getElementById('assignedLocationFilter').value;
+  const dateStrs = assignedWeekDateStrs();
+  document.getElementById('assignedWeekLabel').textContent = shortDate(dateStrs[0]) + ' ~ ' + shortDate(dateStrs[6]);
+  const rows = buildAssignedRows_(assignedRecords, assignedAssignments, dateStrs, locationFilter);
+
+  let html = `<div class="period-caption">성별(남→여)·이름순 · 날짜 칸을 누르면 그날 배치(근무지·주야·배치정보)를 고칠 수 있어요</div>`;
+  html += `<div class="table-wrap"><table style="min-width:1000px;"><tr><th>이름</th><th>성별</th><th>연락처</th><th>근무일수</th>`;
+  dateStrs.forEach(d => html += `<th>${shortDate(d)}</th>`);
+  html += '</tr>';
+  if (rows.length === 0) html += `<tr><td colspan="11" style="text-align:center; color:#999;">배치된 근무자 없음</td></tr>`;
+  rows.forEach(r => {
+    html += `<tr><td>${nameWithBirth_(r.name, r.pin)}</td><td>${r.gender || '-'}</td><td>${r.phone || '-'}</td><td>${r.days}일</td>`;
+    dateStrs.forEach(d => {
+      const cell = r.cells[d];
+      const click = `onclick="openAssignedDay('${r.key}','${d}')"`;
+      if (!cell) {
+        html += `<td ${click} style="color:#bbb; cursor:pointer;">-</td>`;
+        return;
+      }
+      const faded = locationFilter && cell.location !== locationFilter;
+      const lines = cell.items.map(a => {
+        const label = floorLabel(a);
+        return `<div style="font-size:11px;">${shiftSpan(a.shift)}${label ? ' ' + label : ''}</div>${renderInfoFlags(a)}`;
+      }).join('');
+      html += `<td ${click} style="cursor:pointer; font-size:12px; vertical-align:top;${faded ? ' opacity:0.4;' : ''}">
+        <div style="font-weight:700;">${cell.location || '-'}</div>${lines}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</table></div>';
+  content.innerHTML = html;
+  addScrollArrows(content);
+  applyPendingScrollRestore();
+}
+
+// 하루 배치 수정 창. 화면 입력은 assignedDayDraft에만 모았다가 저장할 때 한 번에 보낸다.
+// day/night가 null이면 그 시프트는 배치하지 않음(저장 시 있던 배치는 취소)이다.
+let assignedDayDraft = { key: '', date: '', location: '', day: null, night: null };
+
+function openAssignedDay(key, dateStr) {
+  const dateStrs = assignedWeekDateStrs();
+  if (!dateStr) dateStr = dateStrs[0];
+  const rec = assignedRecords.find(r => r.key === key);
+  const existing = assignedAssignments.filter(a => a.key === key && a.date === dateStr);
+  const recByKey = {};
+  if (rec) recByKey[key] = rec;
+  // existed: 열 때 이미 있던 배치. 그사이 근무자가 신청을 취소해 행이 지워졌으면 서버가 되살리지 않는다.
+  const toInfo = (a) => a ? { floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage, existed: true } : null;
+  assignedDayDraft = {
+    key: key,
+    date: dateStr,
+    location: (existing[0] && assignmentLocation(existing[0], recByKey)) || effectiveLocation(rec, dateStr) || '',
+    day: toInfo(existing.find(a => a.shift === 'day')),
+    night: toInfo(existing.find(a => a.shift === 'night'))
+  };
+
+  // 근무자 목록은 Data 등록자. Data에서 지워진 사람의 칸을 연 경우에만 그 사람을 목록에 덧붙인다.
+  const people = assignedRecords.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'ko'));
+  let keyOptions = '<option value="">-- 근무자 선택 --</option>';
+  if (key && !rec) {
+    const old = assignedAssignments.find(a => a.key === key);
+    keyOptions += `<option value="${key}">${old ? old.name : key} (삭제된 근무자)</option>`;
+  }
+  keyOptions += people.map(p => `<option value="${p.key}">${nameWithBirth_(p.name, p.pin)}</option>`).join('');
+  const keySel = document.getElementById('assignedDayKey');
+  keySel.innerHTML = keyOptions;
+  keySel.value = key;
+  // 날짜는 보고 있는 주 안에서만 고른다. 다른 주는 표에서 ◀ ▶로 넘겨서 연다.
+  const dateSel = document.getElementById('assignedDayDate');
+  dateSel.innerHTML = dateStrs.map(d => `<option value="${d}">${shortDate(d)}</option>`).join('');
+  dateSel.value = dateStr;
+
+  document.getElementById('assignedDayMsg').innerHTML = '';
+  renderAssignedDayForm();
+  document.getElementById('assignedDayOverlay').style.display = 'flex';
+}
+
+function closeAssignedDayOverlay() {
+  document.getElementById('assignedDayOverlay').style.display = 'none';
+}
+
+function renderAssignedDayForm() {
+  const draft = assignedDayDraft;
+  const loc = draft.location;
+  const locOptions = (LOCATIONS.indexOf(loc) > -1 ? '' : `<option value="${loc}">${loc || '-'}</option>`)
+    + LOCATIONS.map(l => `<option value="${l}" ${l === loc ? 'selected' : ''}>${l}</option>`).join('');
+  let html = `<label>근무지</label><select onchange="setAssignedDraftLocation(this.value)">${locOptions}</select>`;
+  [['day', '주간'], ['night', '야간']].forEach(([shift, label]) => {
+    const item = draft[shift];
+    html += `<div style="border:1px solid #eee; border-radius:8px; padding:8px; margin-top:8px;">
+      <label style="display:flex; align-items:center; gap:6px; font-weight:700; margin:0;">
+        <input type="checkbox" style="width:auto;" ${item ? 'checked' : ''} onchange="toggleAssignedDraftShift('${shift}', this.checked)"> ${label}</label>`;
+    if (item) {
+      const floors = floorsFor(loc);
+      const floorOptions = (item.floor && floors.indexOf(item.floor) === -1 ? `<option value="${item.floor}" selected>${item.floor}</option>` : '')
+        + floors.map(f => `<option value="${f}" ${f === item.floor ? 'selected' : ''}>${f}</option>`).join('');
+      html += `<label>배치정보</label><select onchange="setAssignedDraftField('${shift}','floor',this.value)">${floorOptions}</select>`;
+      const transports = transportsFor(loc);
+      if (transports.length > 0) {
+        html += `<label>이동수단</label><select onchange="setAssignedDraftField('${shift}','transport',this.value)"><option value="">-</option>`
+          + transports.map(t => `<option value="${t}" ${t === item.transport ? 'selected' : ''}>${t}</option>`).join('') + '</select>';
+      }
+      html += '<div style="display:flex; gap:12px; margin-top:6px;">'
+        + [['isEducation', '교육'], ['isNew', '신규'], ['isWomenWage', '여임금']].map(([field, text]) =>
+          `<label style="display:flex; align-items:center; gap:4px; margin:0;"><input type="checkbox" style="width:auto;" ${item[field] ? 'checked' : ''} onchange="setAssignedDraftField('${shift}','${field}',this.checked)"> ${text}</label>`
+        ).join('') + '</div>';
+    }
+    html += '</div>';
+  });
+  document.getElementById('assignedDayForm').innerHTML = html;
+}
+
+function setAssignedDraftLocation(location) {
+  assignedDayDraft.location = location;
+  renderAssignedDayForm();
+}
+
+// 새로 켠 시프트의 배치정보 기본값은 지금 근무지의 첫 선택지다.
+function toggleAssignedDraftShift(shift, on) {
+  assignedDayDraft[shift] = on
+    ? { floor: floorsFor(assignedDayDraft.location)[0], transport: '', isEducation: false, isNew: false, isWomenWage: false }
+    : null;
+  renderAssignedDayForm();
+}
+
+function setAssignedDraftField(shift, field, value) {
+  const item = assignedDayDraft[shift];
+  if (!item) return;
+  if (field === 'floor' && value === '기타') {
+    const text = promptEtcFloor_();
+    if (text !== null) item.floor = text;
+  } else {
+    item[field] = value;
+  }
+  renderAssignedDayForm();
+}
+
+function saveAssignedDayEdit() {
+  const draft = assignedDayDraft;
+  const msgEl = document.getElementById('assignedDayMsg');
+  if (!draft.key) { msgEl.innerHTML = '<div class="msg err">근무자를 선택해주세요.</div>'; return; }
+  if (!draft.location && (draft.day || draft.night)) { msgEl.innerHTML = '<div class="msg err">근무지를 선택해주세요.</div>'; return; }
+  adminRun()
+    .withSuccessHandler(function(ok) {
+      if (!ok) { msgEl.innerHTML = '<div class="msg err">근무자 정보를 찾을 수 없어 저장하지 못했습니다.</div>'; return; }
+      if (ok === 'stale') alert('그사이 근무자가 신청을 취소해 지워진 배치는 되살리지 않았습니다. 화면을 새로 불러옵니다.');
+      closeAssignedDayOverlay();
+      saveScrollForRefresh();
+      loadAssignedWorkers();
+    })
+    .withFailureHandler(function(err) { msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>'; })
+    .saveAssignedDay(draft.key, draft.date, draft.location, { day: draft.day, night: draft.night }, adminPassword);
 }
 
 // ---------- 전체신청자 목록 (누적 인사 정보 + 문자발송) ----------

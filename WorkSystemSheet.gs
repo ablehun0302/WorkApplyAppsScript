@@ -1145,6 +1145,81 @@ function batchRemoveAssignments(list, adminPw) {
   return true;
 }
 
+// 관리자 '배치된 근무자' 탭에서 한 사람의 하루 배치를 통째로 맞춘다(배치 추가·취소·배치정보·근무지 수정).
+// 지난 근무 기록을 고치는 용도라 신청 여부는 보지 않고, 근무지도 Data로 다시 계산하지 않고 받은 값을 쓴다.
+// shifts: { day: null | {floor, transport, isEducation, isNew, isWomenWage, existed}, night: 같은 형태 }. null이면 그 시프트 배치를 지운다.
+// existed는 화면을 열 때 이미 있던 배치라는 표시다. 그사이 신청 취소로 그 행이 지워졌으면 되살리지 않고
+// 'stale'을 돌려준다(2026-10-02 변경 이력의 되살아남 문제). 관리자가 새로 체크한 시프트만 새 행을 만든다.
+function saveAssignedDay(key, date, location, shifts, adminPw) {
+  requireAdmin_(adminPw);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    let name = '', gender = '';
+    const dataSheet = getDataSheet_();
+    const dataRows = dataSheet.getDataRange().getValues();
+    for (let i = 1; i < dataRows.length; i++) {
+      if (dataRows[i][0] !== key) continue;
+      name = dataRows[i][1];
+      gender = dataRows[i][10] || dataRows[i][9] || '';
+      // Data에 그날 신청이 있으면 그 근무지도 setShiftLocation과 같은 규칙으로 맞춘다. 그래야 배치판에서
+      // 층을 다시 저장할 때(batchSaveAssignments가 근무지를 Data로 다시 계산) 옛 근무지로 돌아가지 않는다.
+      let applied = [];
+      let locations = [];
+      try { applied = JSON.parse(dataRows[i][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+      try { locations = JSON.parse(dataRows[i][6] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+      const target = applied.filter(function (s) { return s.date === date; })[0];
+      if (target) {
+        const baseLocation = dataRows[i][7] || locations[0] || '';
+        if (!location || location === baseLocation) delete target.location;
+        else target.location = location;
+        dataSheet.getRange(i + 1, 6).setValue(JSON.stringify(applied));
+      }
+      break;
+    }
+
+    const sheet = getAssignSheet_();
+    const data = sheet.getDataRange().getValues();
+    const keyToRow = {};
+    for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+    // Data에서 지워진 사람은 남아 있는 배치 행의 이름·성별을 쓴다. 그것도 없으면 누구인지 알 수 없어 저장하지 않는다.
+    if (!name) {
+      const existing = data.filter(function (r, i) { return i > 0 && r[3] === key && toDateStr_(r[1]) === date; })[0];
+      if (!existing) return false;
+      name = existing[4];
+      gender = existing[5];
+    }
+
+    const rowsToDelete = [];
+    let stale = false;
+    let kept = false;
+    ['day', 'night'].forEach(function (shift) {
+      const assignKey = makeAssignKey_(date, shift, key);
+      const row = keyToRow[assignKey];
+      const item = shifts && shifts[shift];
+      if (!item) {
+        if (row) rowsToDelete.push(row);
+        return;
+      }
+      if (!row && item.existed) {
+        stale = true;
+        return;
+      }
+      const rowData = [assignKey, date, shift, key, name, item.isWomenWage ? '여' : gender, item.floor || '', !!item.isEducation, !!item.isNew, !!item.isWomenWage, location || '', item.transport || ''];
+      if (row) sheet.getRange(row, 1, 1, 12).setValues([rowData]);
+      else sheet.appendRow(rowData);
+      kept = true;
+    });
+    rowsToDelete.sort(function (a, b) { return b - a; }).forEach(function (row) { sheet.deleteRow(row); });
+
+    if (kept) logHistory_(key, date);
+    else removeHistory_(key, date);
+    return stale ? 'stale' : true;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ---- 목표 인원 관련 ----
 function getTargets(adminPw) {
   requireAdmin_(adminPw);
