@@ -638,4 +638,65 @@ test('배치정보: 주방보조는 근무 현장 목록에서 고른다', () =>
   assert.deepStrictEqual(JSON.parse(v.W('JSON.stringify(transportsFor(KITCHEN_LOCATION))')), [], '이동수단은 받지 않는다');
 });
 
+// ---- 물류·포장우리와: 성별이 아니라 배치정보로 묶는다 ----
+const LOGI = '물류우리와_금왕';
+const PACK = '포장우리와_금왕';
+const logiAssign = (key, name, gender, floor) => ({ date: '2026-10-08', shift: 'day', key, name, gender, floor, transport: '', location: LOGI });
+const logiAssigns = [
+  logiAssign('a1', '박주간', '여', '주간지게'),
+  logiAssign('a2', '김검수', '남', '검수'),
+  logiAssign('a3', '이검수', '여', '검수'),
+  logiAssign('a4', '최특수', '남', '용접')
+];
+
+test('배치 문자: 물류우리와는 배치정보 순서대로 묶고(같은 묶음은 남→여) 번호는 성별마다 이어 매긴다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + LOGI + "'");
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, {}, {})");
+  const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  assert.strictEqual(text, [
+    '10/8(목) 주간',
+    '검수2 주간지게1 용접1 (현재 4명)',
+    '',
+    '남1.김검수_검수',
+    '여1.이검수_검수',
+    '',
+    '여2.박주간_주간지게',
+    '',
+    '남2.최특수_용접'
+  ].join('\n'));
+});
+
+test('배치 문자: 포장우리와도 같은 방식이고, 배치 없는 칸은 안내만 적는다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + PACK + "'");
+  v.W("buildShiftBlock('2026-10-08', 'day', [], [], null, null, {}, {}, {})");
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth"), '10/8(목) 주간\n(배치 없음)');
+  const packed = [Object.assign(logiAssign('p1', '홍포장', '남', '원료'), { location: PACK }), Object.assign(logiAssign('p2', '강포장', '여', '포장'), { location: PACK })];
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(packed) + ", null, null, {}, { p1: '900101', p2: '850505' }, {})");
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withBirth"),
+    '10/8(목) 주간\n포장1 원료1 (현재 2명)\n\n여1.강포장 850505_포장\n\n남1.홍포장 900101_원료');
+});
+
+test('배치판: 물류우리와 탭은 목록도 배치정보로 묶고 성별 목표 입력은 없다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + LOGI + "'");
+  const html = v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, { a1: '850505', a2: '900101', a3: '880808' }, {})");
+  assert.ok(html.indexOf('<div class="gender-label">검수</div>') > -1, html);
+  assert.ok(html.indexOf('남1.김검수 900101_검수') > -1 && html.indexOf('여2.박주간 850505_주간지게') > -1, html);
+  assert.ok(html.indexOf('여2.박주간 850505_주간지게') > html.indexOf('여1.이검수 880808_검수'), '배치정보 순서');
+  assert.ok(html.indexOf('현재 검수2 주간지게1 용접1') > -1, html);
+  assert.strictEqual(html.indexOf('global-target-male'), -1, '성별 목표 입력 없음');
+  assert.strictEqual(html.split('class="assigned-select"').length - 1, 4, '선택 체크박스는 그대로');
+});
+
+test('배치판: 다른 근무지 탭과 전체 탭은 그대로 성별로 묶는다', () => {
+  const v = loadAdminView('');
+  ['전체', OTHER].forEach((tab) => {
+    v.W("currentLocationFilter = '" + tab + "'");
+    const html = v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, {}, {})");
+    assert.ok(html.indexOf('남1.') > -1 && html.indexOf('global-target-male') > -1, tab);
+  });
+});
+
 console.log('\n' + passed + '개 통과');
