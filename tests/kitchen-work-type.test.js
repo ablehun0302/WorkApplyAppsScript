@@ -595,6 +595,20 @@ test('배치 문자: 주방보조 주간 배치의 이름 줄 끝에 근무형�
   assert.strictEqual(text(Object.assign({}, kitchenAssign, { key: 'gone' }), REC_BY_KEY).indexOf('파트'), -1, '레코드가 없는 배치');
 });
 
+test('배치 문자: 배치정보가 "배치"면 이름 뒤 "_배치"를 붙이지 않는다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const male = Object.assign({}, kitchenAssign, { floor: '배치', location: OTHER, isEducation: true });
+  const female = Object.assign({}, kitchenAssign, { key: 'k2', name: '이여자', gender: '여', floor: '배치', location: OTHER });
+  const text = v.W("buildShiftText('2026-10-08', '주간', 1, 1, [" + JSON.stringify(male) + '], [' + JSON.stringify(female) + "], { k1: '900101' }, false)");
+  assert.ok(text.indexOf('남1.김주방■교육') > -1, text);
+  assert.ok(text.indexOf('여1.이여자') > -1, text);
+  assert.strictEqual(text.indexOf('배치'), -1, text);
+  const withBirth = v.W("buildShiftText('2026-10-08', '주간', 1, 0, [" + JSON.stringify(male) + "], [], { k1: '900101' }, true)");
+  assert.ok(withBirth.indexOf('남1.김주방 900101■교육') > -1, withBirth);
+  const other = Object.assign({}, male, { floor: '1층', isEducation: false });
+  assert.ok(v.W("buildShiftText('2026-10-08', '주간', 1, 0, [" + JSON.stringify(other) + "], [], { k1: '900101' }, false)").indexOf('남1.김주방_1층') > -1, '다른 배치정보는 그대로');
+});
+
 test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다', () => {
   const v = loadAdminView('', [kitchenWorker]);
   const html = v.W("buildShiftBlock('2026-10-08', 'day', [], [" + JSON.stringify(kitchenAssign) + "], null, null, " + REC_BY_KEY + ", { k1: '900101' }, {})");
@@ -603,11 +617,251 @@ test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다
   assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '생년월일 포함 복사 텍스트');
 });
 
+test('배치판: 날짜마다 주간·야간 복사 텍스트를 한 칸에 합친다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const nightAssign = { date: '2026-10-08', shift: 'night', key: 'k2', name: '이야간', gender: '여', floor: '2층', transport: '', location: OTHER };
+  const html = v.W("buildAssignBoard([new Date(2026, 9, 8)], {}, [" + JSON.stringify(kitchenAssign) + ', ' + JSON.stringify(nightAssign) + "], [], null, " + REC_BY_KEY + ", { k1: '900101' }, {}, {}, new Set())");
+  assert.strictEqual(html.split('<textarea').length - 1, 1, '날짜당 텍스트 칸 하나');
+  assert.ok(html.indexOf('id="text_2026-10-08"') > -1, html);
+  const text = v.W("shiftTextCache['text_2026-10-08'].withoutBirth");
+  assert.ok(text.indexOf('10/8(목) 주간') === 0, text);
+  assert.ok(text.indexOf('남1.김주방_1층 (파트 10~15)') < text.indexOf('10/8(목) 야간'), text);
+  assert.ok(text.indexOf('여1.이야간_2층') > text.indexOf('10/8(목) 야간'), text);
+  assert.ok(v.W("shiftTextCache['text_2026-10-08'].withBirth").indexOf('남1.김주방 900101_1층') > -1, '생년월일 포함');
+});
+
+test('배치판: 생년월일 포함 선택은 날짜마다 복사 버튼 옆에 따로 있다', () => {
+  const v = loadAdminView('', [kitchenWorker]);
+  const board = () => v.W("buildAssignBoard([new Date(2026, 9, 8), new Date(2026, 9, 9)], {}, [" + JSON.stringify(kitchenAssign) + ', ' + JSON.stringify(Object.assign({}, kitchenAssign, { date: '2026-10-09' })) + "], [], null, " + REC_BY_KEY + ", { k1: '900101' }, {}, {}, new Set())");
+  const card = (html, dateStr) => html.slice(html.indexOf('id="text_' + dateStr + '"'), html.indexOf('id="copymsg_' + dateStr + '"'));
+  let html = board();
+  assert.strictEqual(html.split('toggleBirthInCopy(').length - 1, 2, '날짜마다 하나');
+  assert.ok(card(html, '2026-10-08').indexOf('toggleBirthInCopy(\'2026-10-08\'') > -1, '복사 버튼 옆');
+  v.W("toggleBirthInCopy('2026-10-08', true)");
+  html = board();
+  assert.ok(card(html, '2026-10-08').indexOf('남1.김주방 900101_1층') > -1, '선택한 날짜는 생년월일 포함');
+  assert.ok(/ checked>/.test(card(html, '2026-10-08')), '다시 그려도 선택 유지');
+  assert.strictEqual(card(html, '2026-10-09').indexOf('900101'), -1, '다른 날짜는 그대로');
+  assert.ok(!/ checked>/.test(card(html, '2026-10-09')), '다른 날짜는 선택 안 됨');
+});
+
 test('배치정보: 주방보조는 근무 현장 목록에서 고른다', () => {
   const v = loadAdminView('');
   assert.deepStrictEqual(JSON.parse(v.W('JSON.stringify(floorsFor(KITCHEN_LOCATION))')),
     ['솔브레인 공주', '네이버데이터센터', '한라스택폴', '현대프리미엄아울렛 대전', '노바렉스', '현대백화점 충청', '기타']);
   assert.deepStrictEqual(JSON.parse(v.W('JSON.stringify(transportsFor(KITCHEN_LOCATION))')), [], '이동수단은 받지 않는다');
+});
+
+// ---- 물류·포장우리와: 성별이 아니라 배치정보로 묶는다 ----
+const LOGI = '물류우리와_금왕';
+const PACK = '포장우리와_금왕';
+const logiAssign = (key, name, gender, floor) => ({ date: '2026-10-08', shift: 'day', key, name, gender, floor, transport: '', location: LOGI });
+const logiAssigns = [
+  logiAssign('a1', '박주간', '여', '주간지게'),
+  logiAssign('a2', '김검수', '남', '검수'),
+  logiAssign('a3', '이검수', '여', '검수'),
+  logiAssign('a4', '최특수', '남', '용접')
+];
+
+test('배치 문자: 물류우리와는 배치정보 순서대로 묶고(같은 묶음은 남→여) 번호는 성별마다 이어 매긴다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + LOGI + "'");
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, {}, {})");
+  const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  assert.strictEqual(text, [
+    '10/8(목) 주간',
+    '검수2 주간지게1 용접1 (현재 4명)',
+    '',
+    '남1.김검수_검수',
+    '여1.이검수_검수',
+    '',
+    '여2.박주간_주간지게',
+    '',
+    '남2.최특수_용접'
+  ].join('\n'));
+});
+
+test('배치 문자: 포장우리와도 같은 방식이고, 배치 없는 칸은 안내만 적는다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + PACK + "'");
+  v.W("buildShiftBlock('2026-10-08', 'day', [], [], null, null, {}, {}, {})");
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth"), '10/8(목) 주간');
+  const packed = [Object.assign(logiAssign('p1', '홍포장', '남', '원료'), { location: PACK }), Object.assign(logiAssign('p2', '강포장', '여', '포장'), { location: PACK })];
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(packed) + ", null, null, {}, { p1: '900101', p2: '850505' }, {})");
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withBirth"),
+    '10/8(목) 주간\n포장1 원료1 (현재 2명)\n\n여1.강포장 850505_포장\n\n남1.홍포장 900101_원료');
+});
+
+test('배치 문자: 성별 묶음은 목표와 현재가 같으면 목표만 쓰고, 빈 성별의 "배치 없음" 줄은 쓰지 않는다', () => {
+  const v = loadAdminView('');
+  const m = { date: '2026-10-08', shift: 'day', key: 'm1', name: '홍남', gender: '남', floor: '1층', transport: '', location: OTHER };
+  const text = (target, assigns) => {
+    v.W("currentLocationFilter = '" + OTHER + "'");
+    v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(assigns) + ", " + JSON.stringify(target) + ", null, {}, {}, {})");
+    return v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  };
+  assert.strictEqual(text({ maleTarget: '1', femaleTarget: '0' }, [m]), '10/8(목) 주간\n남1 여0\n\n남1.홍남_1층');
+  assert.strictEqual(text({ maleTarget: 2, femaleTarget: 0 }, [m]), '10/8(목) 주간\n남2 여0(현재 남1 여0)\n\n남1.홍남_1층');
+});
+
+test('배치판: 물류우리와 탭은 목록도 배치정보로 묶고 성별 목표 입력은 없다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + LOGI + "'");
+  const html = v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, { a1: '850505', a2: '900101', a3: '880808' }, {})");
+  assert.ok(html.indexOf('<div class="gender-label">검수</div>') > -1, html);
+  assert.ok(html.indexOf('남1.김검수 900101_검수') > -1 && html.indexOf('여2.박주간 850505_주간지게') > -1, html);
+  assert.ok(html.indexOf('여2.박주간 850505_주간지게') > html.indexOf('여1.이검수 880808_검수'), '배치정보 순서');
+  assert.ok(html.indexOf('현재 검수2 주간지게1 용접1') > -1, html);
+  assert.strictEqual(html.indexOf('global-target-male'), -1, '성별 목표 입력 없음');
+  assert.strictEqual(html.split('class="assigned-select"').length - 1, 4, '선택 체크박스는 그대로');
+});
+
+test('배치판: 다른 근무지 탭과 전체 탭은 그대로 성별로 묶는다', () => {
+  const v = loadAdminView('');
+  ['전체', OTHER].forEach((tab) => {
+    v.W("currentLocationFilter = '" + tab + "'");
+    const html = v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, {}, {})");
+    assert.ok(html.indexOf('남1.') > -1 && html.indexOf('global-target-male') > -1, tab);
+  });
+});
+
+// ---- BGF푸드: 복사 텍스트를 "성별번호.이름/지역/전화번호"로 ----
+const BGF = 'BGF푸드_진천';
+const bgfAssign = (key, name, gender, extra) => Object.assign({ date: '2026-10-08', shift: 'day', key, name, gender, floor: '배치', transport: '', location: BGF }, extra);
+const BGF_RECS = "{ b1: { phone: '010-1111-2222', region: '청주' }, b2: { phone: '010-3333-4444', region: '' }, b3: { phone: '', region: '음성' } }";
+
+test('배치 문자: BGF푸드는 이름 뒤에 /지역/전화번호를 붙인다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + BGF + "'");
+  const assigns = [bgfAssign('b1', '김남자', '남', { isEducation: true }), bgfAssign('b2', '박남자', '남'), bgfAssign('b3', '이여자', '여', { floor: '1층' })];
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(assigns) + ", null, null, " + BGF_RECS + ", { b1: '900101' }, {})");
+  const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  assert.ok(text.indexOf('남1.김남자/청주/010-1111-2222■교육') > -1, text);
+  assert.ok(text.indexOf('남2.박남자//010-3333-4444') > -1, '지역이 비어도 자리는 유지: ' + text);
+  assert.ok(text.indexOf('여1.이여자/음성/') > -1 && text.indexOf('_1층') === -1, '배치정보는 붙이지 않는다: ' + text);
+  assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김남자 900101/청주/010-1111-2222■교육') > -1, '생년월일 포함');
+});
+
+test('배치 문자: BGF푸드 탭이 아니면 지역·전화번호를 붙이지 않는다', () => {
+  const v = loadAdminView('');
+  ['전체', OTHER].forEach((tab) => {
+    v.W("currentLocationFilter = '" + tab + "'");
+    v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify([bgfAssign('b1', '김남자', '남', { floor: '1층' })]) + ", null, null, " + BGF_RECS + ", {}, {})");
+    const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+    assert.ok(text.indexOf('남1.김남자_1층') > -1 && text.indexOf('010-') === -1, tab + ': ' + text);
+  });
+});
+
+// ---- 델몬트_원남: 배치정보는 기본값, 복사 텍스트는 "성별번호.이름_지역" ----
+const DEL = '델몬트_원남';
+const delAssign = (key, name, gender, extra) => Object.assign({ date: '2026-10-08', shift: 'day', key, name, gender, floor: '배치', transport: '버스', location: DEL }, extra);
+const DEL_RECS = "{ d1: { phone: '010-1111-2222', region: '증평' }, d2: { phone: '010-3333-4444', region: '' } }";
+
+test('델몬트_원남: 배치정보 선택지는 기본값(배치·기타)이다', () => {
+  const v = loadAdminView('');
+  assert.deepStrictEqual(JSON.parse(v.W("JSON.stringify(floorsFor('" + DEL + "'))")), ['배치', '기타']);
+});
+
+test('배치 문자: 델몬트_원남은 이름 뒤에 _지역만 붙인다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + DEL + "'");
+  const assigns = [delAssign('d1', '김남자', '남', { isEducation: true }), delAssign('d2', '박남자', '남'), delAssign('d3', '이여자', '여')];
+  v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(assigns) + ", null, null, " + DEL_RECS + ", { d1: '900101' }, {})");
+  const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+  assert.ok(text.indexOf('남1.김남자_증평■교육') > -1, text);
+  const lines = text.split('\n');
+  assert.ok(lines.indexOf('남2.박남자') > -1, '지역이 비면 _도 붙이지 않는다: ' + text);
+  assert.ok(lines.indexOf('여1.이여자') > -1, '기록이 없는 사람도 _를 붙이지 않는다: ' + text);
+  assert.strictEqual(text.indexOf('배치'), -1, '배치정보는 보이지 않는다: ' + text);
+  assert.strictEqual(text.indexOf('버스'), -1, '이동수단은 텍스트에 넣지 않는다: ' + text);
+  assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김남자 900101_증평■교육') > -1, '생년월일 포함');
+});
+
+test('배치 문자: 델몬트_원남 탭이 아니면 지역을 붙이지 않는다', () => {
+  const v = loadAdminView('');
+  ['전체', OTHER].forEach((tab) => {
+    v.W("currentLocationFilter = '" + tab + "'");
+    v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify([delAssign('d1', '김남자', '남', { floor: '증평' })]) + ", null, null, " + DEL_RECS + ", {}, {})");
+    const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
+    assert.ok(text.indexOf('남1.김남자_증평_버스') > -1, tab + ': ' + text);
+  });
+});
+
+// ---- 신청자 목록의 지역(Data M열) 수정 ----
+const regionWorker = Object.assign({}, kitchenWorker, { region: '청주 "북부"' });
+const noRegionWorker = Object.assign({}, otherWorker, { shifts: [{ date: '2026-10-08', day: true, night: false }] });
+const APPLICANTS = "buildApplicantTable(lastRecords, new Set(['2026-10-08']), '1주차', '10/5', '10/11')";
+
+// 서버 호출을 기록하고, 성공 핸들러를 바로 실행해 이어지는 호출까지 따라가게 한다.
+function chainServerCalls(v) {
+  v.W(`window.__calls = []; window.__cb = null;
+    google.script.run = new Proxy({}, { get: (t, fn) => fn === 'withSuccessHandler' ? (cb) => { window.__cb = cb; return google.script.run; }
+      : fn === 'withFailureHandler' ? () => google.script.run
+      : (...a) => { window.__calls.push({ fn, a }); const cb = window.__cb; window.__cb = null; if (cb) cb(); } });
+    loadAdmin = function() { window.__calls.push({ fn: 'loadAdmin', a: [] }); };`);
+  return () => JSON.parse(v.W('JSON.stringify(window.__calls)'));
+}
+
+test('신청자 목록: 지역 입력칸에 저장된 값을 넣고, 값에 따옴표가 있어도 속성이 깨지지 않는다', () => {
+  const v = loadAdminView('', [regionWorker, noRegionWorker]);
+  const html = v.W(APPLICANTS);
+  assert.ok(html.indexOf('<th>지역</th>') > -1, html);
+  const input = (key) => html.slice(html.indexOf('id="regionadmin_' + key + '"'), html.indexOf('>', html.indexOf('id="regionadmin_' + key + '"')));
+  assert.ok(input('k1').indexOf('class="global-region-input"') > -1, input('k1'));
+  assert.ok(input('k1').indexOf('data-key="k1"') > -1);
+  assert.ok(input('k1').indexOf('value="청주 &quot;북부&quot;"') > -1, input('k1'));
+  assert.ok(input('k1').indexOf('data-original="청주 &quot;북부&quot;"') > -1, input('k1'));
+  assert.ok(input('k2').indexOf('value=""') > -1 && input('k2').indexOf('data-original=""') > -1, input('k2'));
+});
+
+test('신청자 목록: 신청자가 없을 때 안내 행이 표 칸 수와 맞는다', () => {
+  const v = loadAdminView('', []);
+  assert.ok(v.W(APPLICANTS).indexOf('colspan="11"') > -1);
+});
+
+test('신청자 목록: 행 저장은 성별 → 배치 장소 → 지역 순으로 저장한 뒤 화면을 새로 불러온다', () => {
+  const v = loadAdminView('', [regionWorker]);
+  const calls = chainServerCalls(v);
+  v.W("adminPassword = 'pw'");
+  v.els.genderadmin_k1.value = '여';
+  v.els.locadmin_k1.value = KITCHEN;
+  v.els.regionadmin_k1.value = '음성';
+  v.W("saveAdminRow('k1', 'genderadmin_k1', 'locadmin_k1', 'regionadmin_k1')");
+  same(calls(), [
+    { fn: 'setAdminGender', a: ['k1', '여', 'pw'] },
+    { fn: 'setAdminLocation', a: ['k1', KITCHEN, 'pw'] },
+    { fn: 'setRegion', a: ['k1', '음성', 'pw'] },
+    { fn: 'loadAdmin', a: [] }
+  ]);
+});
+
+test('신청자 목록: 선택 일괄저장은 체크한 사람의 배치 장소와 지역을 함께 저장한다', () => {
+  const v = loadAdminView('', [regionWorker, noRegionWorker]);
+  const calls = chainServerCalls(v);
+  v.W("adminPassword = 'pw'");
+  v.els.applicantTable_1주차.querySelectorAll = () => [{ dataset: { key: 'k1' } }, { dataset: { key: 'k2' } }];
+  v.els.locadmin_k1.value = KITCHEN; v.els.regionadmin_k1.value = '음성';
+  v.els.locadmin_k2.value = OTHER; v.els.regionadmin_k2.value = '';
+  v.W("batchSaveApplicantLocations('applicantTable_1주차')");
+  same(calls(), [
+    { fn: 'batchSetLocations', a: [[{ key: 'k1', location: KITCHEN }, { key: 'k2', location: OTHER }], 'pw'] },
+    { fn: 'batchSetRegions', a: [[{ key: 'k1', region: '음성' }, { key: 'k2', region: '' }], 'pw'] },
+    { fn: 'loadAdmin', a: [] }
+  ]);
+});
+
+test('전체 저장: 바뀐 지역 입력만 모아 한 번에 저장한다', () => {
+  const v = loadAdminView('', [regionWorker, noRegionWorker]);
+  const calls = chainServerCalls(v);
+  v.W("adminPassword = 'pw'");
+  v.W(`document.querySelectorAll = (q) => q === '.global-region-input'
+    ? [{ value: '음성', dataset: { key: 'k1', original: '청주' } }, { value: '진천', dataset: { key: 'k2', original: '진천' } }, { value: '', dataset: { key: 'k3', original: '청주' } }]
+    : [];`);
+  v.W('saveAllOnScreen()');
+  same(calls(), [
+    { fn: 'batchSetRegions', a: [[{ key: 'k1', region: '음성' }, { key: 'k3', region: '' }], 'pw'] },
+    { fn: 'loadAdmin', a: [] }
+  ]);
 });
 
 console.log('\n' + passed + '개 통과');
