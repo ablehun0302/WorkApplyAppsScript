@@ -475,8 +475,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
   const nameTail = (a) => textTail ? textTail(a, recByKey) : textFloorSuffix_(a);
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
   if (floorGroups) {
-    if (floorGroups.length === 0) lines.push('(배치 없음)');
-    else lines.push(`${floorSummary_(floorGroups)} (현재 ${floorGroups.reduce((n, g) => n + g.list.length, 0)}명)`);
+    if (floorGroups.length > 0) lines.push(`${floorSummary_(floorGroups)} (현재 ${floorGroups.reduce((n, g) => n + g.list.length, 0)}명)`);
     const seq = genderSeq_(floorGroups);
     floorGroups.forEach(g => {
       lines.push('');
@@ -490,9 +489,11 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     });
     return lines.join('\n');
   }
-  lines.push(`남${maleTarget} 여${femaleTarget}(현재 남${maleList.length} 여${femaleList.length})`);
-  lines.push('');
-  if (maleList.length === 0) lines.push('(남 배치 없음)');
+  // 목표와 현재 인원이 같으면 목표만 적는다
+  const targetText = `남${maleTarget} 여${femaleTarget}`;
+  const sameAsTarget = Number(maleTarget) === maleList.length && Number(femaleTarget) === femaleList.length;
+  lines.push(sameAsTarget ? targetText : `${targetText}(현재 남${maleList.length} 여${femaleList.length})`);
+  if (maleList.length > 0) lines.push('');
   maleList.forEach((a, idx) => {
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
@@ -500,8 +501,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
     const dispName = withBirth ? nameWithBirth_(a.name, keyToPin && keyToPin[a.key]) : a.name;
     lines.push(`남${idx+1}.${dispName}${nameTail(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}`);
   });
-  lines.push('');
-  if (femaleList.length === 0) lines.push('(여 배치 없음)');
+  if (femaleList.length > 0) lines.push('');
   femaleList.forEach((a, idx) => {
     const edu = a.isEducation ? '■교육' : '';
     const nw = a.isNew ? ' (신)●' : '';
