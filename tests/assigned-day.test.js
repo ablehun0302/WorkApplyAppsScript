@@ -245,4 +245,128 @@ test('화면: 배치가 없는 날을 열면 근무지는 그날 신청 기준, 
   same(JSON.parse(v.W('JSON.stringify(assignedDayDraft)')), { key: 'k1', date: '2026-10-15', location: C, day: null, night: null });
 });
 
+// ---- 일간 보기 ----
+function loadDayView(records, assignments) {
+  const v = loadAdminView();
+  v.W(`assignedRecords = ${JSON.stringify(records)}; assignedAssignments = ${JSON.stringify(assignments)};`);
+  return v;
+}
+
+test('일간: 처음엔 주간 보기이고, 일간으로 바꾸면 오늘(이번 주 안)이 골라지며 날짜 버튼 7개가 나열된다', () => {
+  const v = loadDayView([], []);
+  assert.strictEqual(v.W('assignedView'), 'week');
+  v.W('renderAssignedWorkers()');
+  assert.strictEqual(v.W('assignedSelectedDate'), '2026-10-14');
+  assert.strictEqual(v.els.assignedDateButtons.style.display, 'none');
+  v.W("setAssignedView('day')");
+  assert.strictEqual(v.els.assignedDateButtons.style.display, 'flex');
+  assert.strictEqual(v.els.assignedWeekLabel.style.display, 'none');
+  assert.strictEqual(v.els.assignedViewDayBtn.className, 'primary');
+  assert.strictEqual(v.els.assignedViewWeekBtn.className, 'secondary');
+  const html = v.els.assignedDateButtons.innerHTML;
+  assert.strictEqual(html.split('selectAssignedDate(').length - 1, 7);
+  assert.ok(html.includes('<button class="primary"') && html.includes("selectAssignedDate('2026-10-14')"), '고른 날짜 버튼만 강조');
+  assert.strictEqual(html.split('class="primary"').length - 1, 1);
+});
+
+test('일간: 날짜 버튼을 누르면 그날로 바뀌고, 주를 넘기면 같은 요일로 따라간다', () => {
+  const v = loadDayView([], []);
+  v.W("renderAssignedWorkers(); setAssignedView('day'); selectAssignedDate('2026-10-16');");
+  assert.strictEqual(v.W('assignedSelectedDate'), '2026-10-16');
+  v.W('moveAssignedWeek(1)');
+  assert.strictEqual(v.W('assignedSelectedDate'), '2026-10-23');
+  v.W('moveAssignedWeek(-2)');
+  assert.strictEqual(v.W('assignedSelectedDate'), '2026-10-09');
+});
+
+test('일간: 오늘이 없는 주를 열면 그 주 월요일이 골라진다', () => {
+  const v = loadDayView([], []);
+  v.W('assignedWeekStart.setDate(assignedWeekStart.getDate() + 7); renderAssignedWorkers();');
+  assert.strictEqual(v.W('assignedSelectedDate'), '2026-10-19');
+});
+
+const cardsOf = (v, date, filter) =>
+  JSON.parse(v.W(`JSON.stringify(buildAssignedDayCards_(assignedRecords, assignedAssignments, '${date}', '${filter || ''}')
+    .map(c => [c.location, c.day.map(p => p.name), c.night.map(p => p.name)]))`));
+
+test('일간: 그날 배치를 LOCATIONS 순서의 근무지 카드로 묶고 주간·야간은 성별·이름순, 지워진 사람은 배치 행 이름', () => {
+  const v = loadDayView(
+    [rec('k1', '홍길동', '남', [A]), rec('k2', '김영희', '여', [A]), rec('k3', '가나다', '남', [A])],
+    [asg('2026-10-14', 'day', 'k1', A), asg('2026-10-14', 'day', 'k2', A), asg('2026-10-14', 'day', 'k3', A),
+     asg('2026-10-14', 'night', 'k2', C), asg('2026-10-14', 'night', 'k1', B), asg('2026-10-14', 'day', 'gone', B, { gender: '여' }),
+     asg('2026-10-15', 'day', 'k1', A)]);
+  same(cardsOf(v, '2026-10-14'), [
+    [A, ['가나다', '홍길동', '김영희'], []],
+    [C, [], ['김영희']],
+    [B, ['옛이름'], ['홍길동']]
+  ]);
+  same(cardsOf(v, '2026-10-14', B), [[B, ['옛이름'], ['홍길동']]], '근무지 필터는 그 근무지 카드만');
+  same(cardsOf(v, '2026-10-16'), [], '배치가 없는 날');
+});
+
+test('일간: 사람 줄에 성별별 번호·입력칸·저장·배치취소가 그려지고 주야 둘 다 있는 사람만 안내가 붙는다', () => {
+  const v = loadDayView(
+    [rec('k1', '홍길동', '남', [A]), rec('k2', '김철수', '남', [A])],
+    [asg('2026-10-14', 'day', 'k1', A, { floor: '2층', isNew: true }), asg('2026-10-14', 'night', 'k1', A),
+     asg('2026-10-14', 'day', 'k2', A)]);
+  v.W("renderAssignedWorkers(); setAssignedView('day');");
+  const html = v.els.assignedContent.innerHTML;
+  assert.ok(html.includes('남1.김철수 900101') && html.includes('남2.홍길동 900101'), '번호는 이름순으로 이어 매기고 이름 뒤에 생년월일');
+  assert.ok(html.includes("saveAssignedDayRow('k1','day')") && html.includes("cancelAssignedDayRow('k1','night')"));
+  assert.ok(html.includes('<option value="2층" selected>2층</option>'), '저장된 배치정보가 골라져 있다');
+  assert.ok(/id="adn_day_k1" checked/.test(html) && !/id="adn_day_k2" checked/.test(html), '신규 체크는 저장된 값대로');
+  assert.strictEqual(html.split('근무지는 주야 모두 적용').length - 1, 2, 'k1의 주간·야간 두 줄에만');
+});
+
+test('일간: 줄 저장은 그 시프트의 입력값과 다른 시프트의 지금 값을 하루치로 한 번에 보낸다', () => {
+  const v = loadDayView([rec('k1', '홍길동', '남', [A])],
+    [asg('2026-10-14', 'day', 'k1', A, { floor: '2층' }), asg('2026-10-14', 'night', 'k1', A, { floor: '3층', isEducation: true })]);
+  v.W('renderAssignedWorkers()');
+  v.els.adl_day_k1.value = B;
+  v.els.adf_day_k1.value = '배치';
+  v.els.adn_day_k1.checked = true;
+  v.W("saveAssignedDayRow('k1', 'day')");
+  const args = v.callsTo('saveAssignedDay')[0];
+  same(args.slice(0, 3), ['k1', '2026-10-14', B]);
+  same(args[3], {
+    day: { floor: '배치', transport: '', isEducation: false, isNew: true, isWomenWage: false, existed: true },
+    night: { floor: '3층', transport: '', isEducation: true, isNew: false, isWomenWage: false, existed: true }
+  });
+});
+
+test('일간: 배치취소는 그 시프트만 null로 보내고 근무지는 저장돼 있던 값을 쓴다', () => {
+  const v = loadDayView([rec('k1', '홍길동', '남', [A])],
+    [asg('2026-10-14', 'day', 'k1', C, { floor: '2층' }), asg('2026-10-14', 'night', 'k1', C, { floor: '3층' })]);
+  v.W('renderAssignedWorkers()');
+  v.els.adl_night_k1.value = B; // 줄에서 근무지를 바꿔 놓았어도 취소에는 영향이 없다
+  v.W("cancelAssignedDayRow('k1', 'night')");
+  const args = v.callsTo('saveAssignedDay')[0];
+  same(args.slice(0, 3), ['k1', '2026-10-14', C]);
+  same(args[3], { day: { floor: '2층', transport: '', isEducation: false, isNew: false, isWomenWage: false, existed: true }, night: null });
+
+  const v2 = loadDayView([rec('k1', '홍길동', '남', [A])], [asg('2026-10-14', 'day', 'k1', A)]);
+  v2.W('renderAssignedWorkers()');
+  v2.W("cancelAssignedDayRow('k1', 'day')");
+  same(v2.callsTo('saveAssignedDay')[0][3], { day: null, night: null });
+});
+
+test('일간: 줄에서 근무지를 바꾸면 그 줄의 배치정보 목록만 새 근무지 것으로 바뀌고 입력한 값은 남는다', () => {
+  const v = loadDayView([rec('k1', '홍길동', '남', [A])], [asg('2026-10-14', 'day', 'k1', A, { floor: '2층' })]);
+  v.W('renderAssignedWorkers()');
+  v.els.adl_day_k1.value = B;
+  v.els.adf_day_k1.value = '2층';
+  v.els.adn_day_k1.checked = true;
+  v.W("onAssignedRowLocationChange('k1', 'day')");
+  const html = v.els.adfields_day_k1.innerHTML;
+  assert.ok(html.includes('<option value="배치" '), 'BGF의 배치정보 선택지');
+  assert.ok(html.includes('<option value="2층" selected>2층</option>'), '새 목록에 없는 기존 값은 그대로 유지');
+  assert.ok(/id="adn_day_k1" checked/.test(html), '체크한 값 유지');
+});
+
+test('일간: ➕ 배치 추가 창은 일간 보기에서 고른 날짜로 열린다', () => {
+  const v = loadDayView([rec('k1', '홍길동', '남', [A])], []);
+  v.W("renderAssignedWorkers(); setAssignedView('day'); selectAssignedDate('2026-10-16'); openAssignedDay('', assignedView === 'day' ? assignedSelectedDate : '');");
+  assert.strictEqual(v.W('assignedDayDraft.date'), '2026-10-16');
+});
+
 console.log('\n' + passed + '개 통과');

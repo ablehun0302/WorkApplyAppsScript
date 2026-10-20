@@ -115,15 +115,20 @@
 
       <div id="adminAssignedArea" style="display:none;">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <div style="display:flex; gap:4px;">
+            <button id="assignedViewWeekBtn" class="primary" style="width:auto; margin:0; padding:4px 10px; font-size:14px;" onclick="setAssignedView('week')">주간</button>
+            <button id="assignedViewDayBtn" class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="setAssignedView('day')">일간</button>
+          </div>
           <label style="font-size:13px; display:flex; align-items:center; gap:4px; white-space:nowrap;">근무지
             <select id="assignedLocationFilter" onchange="renderAssignedWorkers()" style="font-size:13px; padding:5px 8px;"></select>
           </label>
-          <div style="display:flex; align-items:center; gap:4px;">
+          <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
             <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="moveAssignedWeek(-1)">◀</button>
             <span id="assignedWeekLabel" style="font-size:14px; font-weight:700; min-width:140px; text-align:center;"></span>
+            <div id="assignedDateButtons" style="display:none; gap:4px; flex-wrap:wrap;"></div>
             <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="moveAssignedWeek(1)">▶</button>
           </div>
-          <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="openAssignedDay('', '')">➕ 배치 추가</button>
+          <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="openAssignedDay('', assignedView === 'day' ? assignedSelectedDate : '')">➕ 배치 추가</button>
         </div>
         <div id="assignedContent"><div class="empty">불러오는 중...</div></div>
       </div>
@@ -1894,9 +1899,11 @@ function renderAssignHistory() {
   applyPendingScrollRestore();
 }
 
-// ---------- 배치된 근무자 (Assign 시트 기준 주간 표 + 하루 배치 수정) ----------
+// ---------- 배치된 근무자 (Assign 시트 기준 주간 표 / 일간 근무지별 목록 + 하루 배치 수정) ----------
 let assignedRecords = [];
 let assignedAssignments = [];
+let assignedView = 'week'; // 'week' | 'day'
+let assignedSelectedDate = ''; // 일간 보기에서 고른 날짜. 보고 있는 주 밖이면 renderAssignedWorkers가 다시 고른다.
 let assignedWeekStart = (function() {
   const d = new Date(); d.setHours(0,0,0,0);
   d.setDate(d.getDate() - (d.getDay() + 6) % 7); // 이번 주 월요일
@@ -1934,8 +1941,21 @@ function loadAssignedWorkers() {
     });
 }
 
+// 주를 넘기면 일간 보기에서 고른 날짜도 같은 요일로 따라간다.
 function moveAssignedWeek(delta) {
+  const dayIdx = assignedWeekDateStrs().indexOf(assignedSelectedDate);
   assignedWeekStart.setDate(assignedWeekStart.getDate() + delta * 7);
+  if (dayIdx > -1) assignedSelectedDate = assignedWeekDateStrs()[dayIdx];
+  renderAssignedWorkers();
+}
+
+function setAssignedView(view) {
+  assignedView = view;
+  renderAssignedWorkers();
+}
+
+function selectAssignedDate(dateStr) {
+  assignedSelectedDate = dateStr;
   renderAssignedWorkers();
 }
 
@@ -1967,17 +1987,40 @@ function buildAssignedRows_(records, assignments, dateStrs, locationFilter) {
     });
     row.days = Object.values(row.cells).filter(c => !locationFilter || c.location === locationFilter).length;
   });
-  const genderRank = (g) => g === '남' ? 0 : g === '여' ? 1 : 2;
   return rows
     .filter(r => r.days > 0)
-    .sort((a, b) => (genderRank(a.gender) - genderRank(b.gender)) || String(a.name).localeCompare(String(b.name), 'ko'));
+    .sort(compareAssignedPeople_);
 }
 
 function renderAssignedWorkers() {
+  const dateStrs = assignedWeekDateStrs();
+  if (dateStrs.indexOf(assignedSelectedDate) === -1) {
+    const today = formatDate(new Date());
+    assignedSelectedDate = dateStrs.indexOf(today) > -1 ? today : dateStrs[0];
+  }
+  document.getElementById('assignedWeekLabel').textContent = shortDate(dateStrs[0]) + ' ~ ' + shortDate(dateStrs[6]);
+  renderAssignedViewButtons_(dateStrs);
+  if (assignedView === 'day') renderAssignedDay_(); else renderAssignedWeek_(dateStrs);
+}
+
+// 주간/일간 전환 버튼과, 일간 보기일 때 ◀ ▶ 사이에 나열되는 날짜 버튼
+function renderAssignedViewButtons_(dateStrs) {
+  const day = assignedView === 'day';
+  document.getElementById('assignedViewWeekBtn').className = day ? 'secondary' : 'primary';
+  document.getElementById('assignedViewDayBtn').className = day ? 'primary' : 'secondary';
+  document.getElementById('assignedWeekLabel').style.display = day ? 'none' : '';
+  const buttons = document.getElementById('assignedDateButtons');
+  buttons.style.display = day ? 'flex' : 'none';
+  buttons.innerHTML = dateStrs.map(d => {
+    const date = new Date(d);
+    const selected = d === assignedSelectedDate;
+    return `<button class="${selected ? 'primary' : 'secondary'}" style="width:auto; margin:0; padding:3px 8px; font-size:12px; line-height:1.3;" onclick="selectAssignedDate('${d}')">${date.getMonth() + 1}/${date.getDate()}<br>${DAY_NAMES[date.getDay()]}</button>`;
+  }).join('');
+}
+
+function renderAssignedWeek_(dateStrs) {
   const content = document.getElementById('assignedContent');
   const locationFilter = document.getElementById('assignedLocationFilter').value;
-  const dateStrs = assignedWeekDateStrs();
-  document.getElementById('assignedWeekLabel').textContent = shortDate(dateStrs[0]) + ' ~ ' + shortDate(dateStrs[6]);
   const rows = buildAssignedRows_(assignedRecords, assignedAssignments, dateStrs, locationFilter);
 
   let html = `<div class="period-caption">성별(남→여)·이름순 · 날짜 칸을 누르면 그날 배치(근무지·주야·배치정보)를 고칠 수 있어요</div>`;
@@ -2010,9 +2053,151 @@ function renderAssignedWorkers() {
   applyPendingScrollRestore();
 }
 
+// 성별(남→여)·이름순
+function compareAssignedPeople_(x, y) {
+  const genderRank = (g) => g === '남' ? 0 : g === '여' ? 1 : 2;
+  return (genderRank(x.gender) - genderRank(y.gender)) || String(x.name).localeCompare(String(y.name), 'ko');
+}
+
+// 그날 배치를 근무지별 카드로 묶는다. 카드는 LOCATIONS 순서이고 카드 안 주간·야간 목록은 성별·이름순이다.
+// 근무지 필터를 고르면 그 근무지 카드만 남긴다. Data에서 지워진 사람은 배치 행에 남아 있는 이름·성별로 보여준다.
+function buildAssignedDayCards_(records, assignments, dateStr, locationFilter) {
+  const recByKey = {};
+  records.forEach(r => { recByKey[r.key] = r; });
+  const byLocation = {};
+  assignments.filter(a => a.date === dateStr).forEach(a => {
+    const location = assignmentLocation(a, recByKey);
+    if (locationFilter && location !== locationFilter) return;
+    const rec = recByKey[a.key];
+    const card = byLocation[location] || (byLocation[location] = { location: location, day: [], night: [] });
+    card[a.shift].push({
+      a: a,
+      name: rec ? rec.name : a.name,
+      pin: rec ? (rec.pin || '') : '',
+      gender: (rec && (rec.adminGender || rec.gender)) || a.gender || ''
+    });
+  });
+  const locationRank = (l) => LOCATIONS.indexOf(l) === -1 ? LOCATIONS.length : LOCATIONS.indexOf(l);
+  const cards = Object.values(byLocation).sort((x, y) => locationRank(x.location) - locationRank(y.location));
+  cards.forEach(card => {
+    card.day.sort(compareAssignedPeople_);
+    card.night.sort(compareAssignedPeople_);
+  });
+  return cards;
+}
+
+// 일간 보기: 고른 날짜의 근무지별 카드. 사람 줄마다 팝업 없이 바로 고치고 줄 단위로 저장한다.
+function renderAssignedDay_() {
+  const content = document.getElementById('assignedContent');
+  const locationFilter = document.getElementById('assignedLocationFilter').value;
+  const date = assignedSelectedDate;
+  const cards = buildAssignedDayCards_(assignedRecords, assignedAssignments, date, locationFilter);
+  // 주간·야간 둘 다 있는 사람은 근무지가 두 시프트에 같이 적용된다는 걸 줄에 알린다.
+  const shiftCount = {};
+  assignedAssignments.filter(a => a.date === date).forEach(a => { shiftCount[a.key] = (shiftCount[a.key] || 0) + 1; });
+
+  let html = `<div class="period-caption">${shortDate(date)} · 성별(남→여)·이름순 · 사람 줄에서 근무지·배치정보를 고치고 [저장]을 누르세요</div>`;
+  if (cards.length === 0) html += '<div class="empty">배치된 근무자 없음</div>';
+  cards.forEach(card => {
+    html += `<div class="card" style="margin-bottom:10px;">
+      <div style="font-weight:700; border-bottom:1px solid #eee; padding-bottom:4px;">${card.location || '-'} <span style="font-weight:400; color:#888;">· 총 ${card.day.length + card.night.length}명</span></div>`;
+    [['day', '☀️ 주간'], ['night', '🌙 야간']].forEach(([shift, label]) => {
+      const list = card[shift];
+      if (list.length === 0) return;
+      html += `<div style="font-weight:700; font-size:13px; margin:8px 0 4px;">${label} ${list.length}명</div>`;
+      const seq = {};
+      list.forEach(p => {
+        seq[p.gender] = (seq[p.gender] || 0) + 1;
+        html += assignedDayRowHtml_(p, shift, p.gender + seq[p.gender], card.location, shiftCount[p.a.key] > 1);
+      });
+    });
+    html += '</div>';
+  });
+  content.innerHTML = html;
+  applyPendingScrollRestore();
+}
+
+function assignedDayRowHtml_(p, shift, seq, location, hasBothShifts) {
+  const a = p.a;
+  const id = shift + '_' + a.key;
+  const locOptions = (LOCATIONS.indexOf(location) > -1 ? '' : `<option value="${location}">${location || '-'}</option>`)
+    + LOCATIONS.map(l => `<option value="${l}" ${l === location ? 'selected' : ''}>${l}</option>`).join('');
+  const values = { location: location, floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage };
+  return `<div class="unassigned-chip" style="margin-bottom:4px;">
+    <span style="font-weight:700;">${seq}.${nameWithBirth_(p.name, p.pin)}</span>
+    <select id="adl_${id}" onchange="onAssignedRowLocationChange('${a.key}','${shift}')">${locOptions}</select>
+    ${hasBothShifts ? '<span style="font-size:10px; color:#888;">근무지는 주야 모두 적용</span>' : ''}
+    <span id="adfields_${id}" style="display:contents;">${assignedRowFieldsHtml_(id, values)}</span>
+    <button onclick="saveAssignedDayRow('${a.key}','${shift}')">저장</button>
+    <button style="background:#fdecea; color:#c0392b;" onclick="cancelAssignedDayRow('${a.key}','${shift}')">배치취소</button>
+  </div>`;
+}
+
+// 사람 줄에서 근무지 다음에 오는 입력칸들. 근무지를 바꾸면 이 부분만 다시 그려 다른 줄의 입력을 건드리지 않는다.
+function assignedRowFieldsHtml_(id, v) {
+  const floors = floorsFor(v.location);
+  const floorOptions = (v.floor && floors.indexOf(v.floor) === -1 ? `<option value="${v.floor}" selected>${v.floor}</option>` : '')
+    + floors.map(f => `<option value="${f}" ${f === v.floor ? 'selected' : ''}>${f}</option>`).join('');
+  const transports = transportsFor(v.location);
+  const transportSel = transports.length === 0 ? ''
+    : `<select id="adt_${id}"><option value="">이동수단</option>${transports.map(t => `<option value="${t}" ${t === v.transport ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const flags = [['isEducation', '교육', 'ade'], ['isNew', '신규', 'adn'], ['isWomenWage', '여임금', 'adw']].map(([field, text, prefix]) =>
+    `<label><input type="checkbox" id="${prefix}_${id}" ${v[field] ? 'checked' : ''}>${text}</label>`).join('');
+  return `<select id="adf_${id}" onchange="onFloorSelectChange(this)">${floorOptions}</select>${transportSel}${flags}`;
+}
+
+function readAssignedRow_(id) {
+  const el = (prefix) => document.getElementById(prefix + '_' + id);
+  const transport = el('adt');
+  return {
+    location: el('adl').value,
+    floor: el('adf').value,
+    transport: transport ? transport.value : '',
+    isEducation: el('ade').checked,
+    isNew: el('adn').checked,
+    isWomenWage: el('adw').checked
+  };
+}
+
+function onAssignedRowLocationChange(key, shift) {
+  const id = shift + '_' + key;
+  document.getElementById('adfields_' + id).innerHTML = assignedRowFieldsHtml_(id, readAssignedRow_(id));
+}
+
+// 한 줄은 한 시프트만 다루므로 다른 시프트는 지금 값 그대로 함께 보낸다(saveAssignedDay는 하루치를 통째로 맞춘다).
+function assignedDayShifts_(key, dateStr, shift, info) {
+  const other = assignedAssignments.find(a => a.key === key && a.date === dateStr && a.shift !== shift);
+  const shifts = { day: null, night: null };
+  shifts[shift === 'day' ? 'night' : 'day'] = assignedInfoOf_(other);
+  shifts[shift] = info;
+  return shifts;
+}
+
+function saveAssignedDayRow(key, shift) {
+  const v = readAssignedRow_(shift + '_' + key);
+  const info = { floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage, existed: true };
+  sendAssignedDay_(key, assignedSelectedDate, v.location, assignedDayShifts_(key, assignedSelectedDate, shift, info), (msg) => alert(msg));
+}
+
+// 근무지는 줄에서 바꾼 값이 아니라 저장돼 있던 값으로 보낸다. 다른 시프트가 남아 있으면 그 근무지가 같이 바뀌면 안 된다.
+function cancelAssignedDayRow(key, shift) {
+  const date = assignedSelectedDate;
+  const asg = assignedAssignments.find(a => a.key === key && a.date === date && a.shift === shift);
+  if (!asg) return;
+  const rec = assignedRecords.find(r => r.key === key);
+  const recByKey = {};
+  if (rec) recByKey[key] = rec;
+  sendAssignedDay_(key, date, assignmentLocation(asg, recByKey), assignedDayShifts_(key, date, shift, null), (msg) => alert(msg));
+}
+
 // 하루 배치 수정 창. 화면 입력은 assignedDayDraft에만 모았다가 저장할 때 한 번에 보낸다.
 // day/night가 null이면 그 시프트는 배치하지 않음(저장 시 있던 배치는 취소)이다.
 let assignedDayDraft = { key: '', date: '', location: '', day: null, night: null };
+
+// existed: 열 때 이미 있던 배치. 그사이 근무자가 신청을 취소해 행이 지워졌으면 서버가 되살리지 않는다.
+function assignedInfoOf_(a) {
+  return a ? { floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage, existed: true } : null;
+}
 
 function openAssignedDay(key, dateStr) {
   const dateStrs = assignedWeekDateStrs();
@@ -2021,14 +2206,12 @@ function openAssignedDay(key, dateStr) {
   const existing = assignedAssignments.filter(a => a.key === key && a.date === dateStr);
   const recByKey = {};
   if (rec) recByKey[key] = rec;
-  // existed: 열 때 이미 있던 배치. 그사이 근무자가 신청을 취소해 행이 지워졌으면 서버가 되살리지 않는다.
-  const toInfo = (a) => a ? { floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage, existed: true } : null;
   assignedDayDraft = {
     key: key,
     date: dateStr,
     location: (existing[0] && assignmentLocation(existing[0], recByKey)) || effectiveLocation(rec, dateStr) || '',
-    day: toInfo(existing.find(a => a.shift === 'day')),
-    night: toInfo(existing.find(a => a.shift === 'night'))
+    day: assignedInfoOf_(existing.find(a => a.shift === 'day')),
+    night: assignedInfoOf_(existing.find(a => a.shift === 'night'))
   };
 
   // 근무자 목록은 Data 등록자. Data에서 지워진 사람의 칸을 연 경우에만 그 사람을 목록에 덧붙인다.
@@ -2117,16 +2300,22 @@ function saveAssignedDayEdit() {
   const msgEl = document.getElementById('assignedDayMsg');
   if (!draft.key) { msgEl.innerHTML = '<div class="msg err">근무자를 선택해주세요.</div>'; return; }
   if (!draft.location && (draft.day || draft.night)) { msgEl.innerHTML = '<div class="msg err">근무지를 선택해주세요.</div>'; return; }
+  sendAssignedDay_(draft.key, draft.date, draft.location, { day: draft.day, night: draft.night },
+    function(msg) { msgEl.innerHTML = '<div class="msg err">' + msg + '</div>'; });
+}
+
+// 하루 배치를 서버에 저장하고 목록을 새로 불러온다. 저장하지 못했으면 onFail(메시지)를 부른다.
+function sendAssignedDay_(key, date, location, shifts, onFail) {
   adminRun()
     .withSuccessHandler(function(ok) {
-      if (!ok) { msgEl.innerHTML = '<div class="msg err">근무자 정보를 찾을 수 없어 저장하지 못했습니다.</div>'; return; }
+      if (!ok) { onFail('근무자 정보를 찾을 수 없어 저장하지 못했습니다.'); return; }
       if (ok === 'stale') alert('그사이 근무자가 신청을 취소해 지워진 배치는 되살리지 않았습니다. 화면을 새로 불러옵니다.');
       closeAssignedDayOverlay();
       saveScrollForRefresh();
       loadAssignedWorkers();
     })
-    .withFailureHandler(function(err) { msgEl.innerHTML = '<div class="msg err">저장 오류: ' + err.message + '</div>'; })
-    .saveAssignedDay(draft.key, draft.date, draft.location, { day: draft.day, night: draft.night }, adminPassword);
+    .withFailureHandler(function(err) { onFail('저장 오류: ' + err.message); })
+    .saveAssignedDay(key, date, location, shifts, adminPassword);
 }
 
 // ---------- 전체신청자 목록 (누적 인사 정보 + 문자발송) ----------
