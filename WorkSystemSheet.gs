@@ -156,6 +156,7 @@ function getCurrentTwoWeekDateSet_() {
 // 근로자 신청 수정/취소로 사라진 (날짜,시프트) 중, 실제로 화면에 보였던(=이번 주~다음 주)
 // 날짜에 한해서만 Assign/History에서 제거한다.
 // oldShifts/newShifts: [{date, day, night}, ...] (전체 취소 시 newShifts는 빈 배열)
+// 읽어둔 행 번호로 지우므로, 다른 요청이 그 사이 행을 지우거나 쓰지 않게 호출하는 쪽에서 잠금을 잡은 채로 불러야 한다.
 function removeCanceledAssignments_(key, oldShifts, newShifts) {
   const currentWindow = getCurrentTwoWeekDateSet_();
   const newMap = {};
@@ -225,10 +226,16 @@ function savePastMonthly(key, yearMonth, days, adminPw) {
 
 function deletePastMonthly(key, yearMonth, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getPastMonthlySheet_();
-  const pmKey = key + '_' + yearMonth;
-  const row = findRow_(sheet, 0, pmKey);
-  if (row > -1) sheet.deleteRow(row);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getPastMonthlySheet_();
+    const pmKey = key + '_' + yearMonth;
+    const row = findRow_(sheet, 0, pmKey);
+    if (row > -1) sheet.deleteRow(row);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
@@ -277,7 +284,10 @@ function getWorkStats(adminPw) {
   return result;
 }
 
+// 한 번의 서버 호출 안에서 시트를 여러 개 다루므로 스프레드시트는 한 번만 연다(전역은 호출마다 새로 시작한다).
+let ss_ = null;
 function getSpreadsheet_() {
+  if (ss_) return ss_;
   const props = PropertiesService.getScriptProperties();
   let ssId = props.getProperty('SS_ID');
   let ss = null;
@@ -288,6 +298,7 @@ function getSpreadsheet_() {
     ss = SpreadsheetApp.create(NEW_SHEET_NAME);
     props.setProperty('SS_ID', ss.getId());
   }
+  ss_ = ss;
   return ss;
 }
 
@@ -301,18 +312,15 @@ function cleanupDefaultSheets_(ss) {
 
 const DATA_HEADERS = ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent', 'region'];
 
+// D열(pin) 텍스트 서식: 앞자리 0 유실 방지. 기존 시트는 예전 코드가 이미 적용해 두었으므로 만들 때만 건다.
 function getDataSheet_() {
-  const sheet = getOrCreateSheet_('Data', DATA_HEADERS);
-  sheet.getRange('D:D').setNumberFormat('@'); // pin 앞자리 0 유실 방지 (기존 시트에도 매번 적용)
-  return sheet;
+  return getOrCreateSheet_('Data', DATA_HEADERS, 'D:D');
 }
 
 // Data에 없는 신규 근무자의 신청은 관리자가 승인하기 전까지 이 시트에 쌓인다.
 // 컬럼을 Data와 똑같이 두어 승인할 때 행을 그대로 옮긴다(adminLocation·adminGender 칸은 비워 둔다).
 function getPendingSheet_() {
-  const sheet = getOrCreateSheet_('신규데이터', DATA_HEADERS);
-  sheet.getRange('D:D').setNumberFormat('@');
-  return sheet;
+  return getOrCreateSheet_('신규데이터', DATA_HEADERS, 'D:D');
 }
 
 function getAssignSheet_() {
@@ -400,27 +408,33 @@ function batchSaveRecords(list, adminPw) {
 
     const newRows = [];
     const pendingNewIndexByKey = {}; // 같은 배치(list) 안에 동일 key가 두 번 들어와도 새 행이 중복 생성되지 않도록 추적
+    const updatedShifts = {}; // 기존 근무자 key → { old, merged }. 빠진 날짜의 배치를 지우는 데 쓴다.
     list.forEach(item => {
       const key = makeKey_(item.name, item.pin || '');
       const row = keyToRow[key];
       let existingAdminLocation = '';
       let existingAdminGender = '';
       let existingAdConsent = '';
+      let existingMessage = '';
       let existingShifts = [];
       if (row) {
         // 위에서 이미 읽어둔 data 배열에 있는 값이므로 getRange().getValue()로 다시 조회하지 않는다.
         existingAdminLocation = data[row - 1][7] || '';
+        existingMessage = data[row - 1][8] || '';
         existingAdminGender = data[row - 1][10] || '';
         existingAdConsent = data[row - 1][11] || '';
         try { existingShifts = JSON.parse(data[row - 1][5] || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
       }
+      const newShifts = mergeShiftExtras_(existingShifts, item.shifts || []);
+      const shifts = row ? replaceWindowShifts_(existingShifts, newShifts) : newShifts;
       const rowData = [
-        key, (item.name || '').trim(), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
-        JSON.stringify(mergeShiftExtras_(existingShifts, item.shifts || [])), JSON.stringify(item.locations || []),
-        existingAdminLocation, '', item.gender || '', existingAdminGender, existingAdConsent
+        key, toTextCell_((item.name || '').trim()), toTextCell_((item.phone || '').trim()), toTextCell_((item.pin || '').trim()), now,
+        JSON.stringify(shifts), JSON.stringify(item.locations || []),
+        existingAdminLocation, toTextCell_(existingMessage), item.gender || '', existingAdminGender, existingAdConsent
       ];
       if (row) {
         sheet.getRange(row, 1, 1, 12).setValues([rowData]);
+        updatedShifts[key] = { old: existingShifts, merged: shifts };
       } else if (pendingNewIndexByKey.hasOwnProperty(key)) {
         newRows[pendingNewIndexByKey[key]] = rowData;
       } else {
@@ -433,6 +447,7 @@ function batchSaveRecords(list, adminPw) {
     if (newRows.length > 0) {
       sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 12).setValues(newRows);
     }
+    Object.keys(updatedShifts).forEach(key => removeCanceledAssignments_(key, updatedShifts[key].old, updatedShifts[key].merged));
   } finally {
     lock.releaseLock();
   }
@@ -446,8 +461,6 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   const key = makeKey_(name, pin);
-  let oldShifts = [];
-  let mergedShifts = [];
   try {
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, key);
@@ -460,21 +473,21 @@ function saveRecord(name, pin, phone, shifts, locations, message, gender, adCons
     const now = new Date().toISOString();
     const existingAdminLocation = sheet.getRange(row, 8).getValue() || '';
     const existingAdminGender = sheet.getRange(row, 11).getValue() || '';
-    oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
+    const oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
     // 오늘 이전 날짜는 화면에서 수정이 막혀 있지만, 클라이언트를 우회해 saveRecord가 직접 호출될 수도 있으므로
     // 서버에서도 과거 날짜분은 기존 값을 그대로 유지하고 클라이언트가 보낸 값은 무시한다.
     const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
     const pastOldShifts = oldShifts.filter(s => s.date < todayStr);
     const newShifts = (shifts || []).filter(s => s.date >= todayStr);
-    mergedShifts = pastOldShifts.concat(newShifts);
-    const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(mergedShifts), JSON.stringify(locations || []), existingAdminLocation, (message || '').trim(), gender || '', existingAdminGender, adConsent || ''];
+    const mergedShifts = pastOldShifts.concat(newShifts);
+    const rowData = [key, toTextCell_(name.trim()), toTextCell_(phone.trim()), toTextCell_(pin.trim()), now, JSON.stringify(mergedShifts), JSON.stringify(locations || []), existingAdminLocation, toTextCell_((message || '').trim()), gender || '', existingAdminGender, adConsent || ''];
     console.log("pin: %s, phone: %s", pin, phone);
     sheet.getRange(row, 1, 1, 12).setValues([rowData]);
+    // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
+    removeCanceledAssignments_(key, oldShifts, mergedShifts);
   } finally {
     lock.releaseLock();
   }
-  // 신청 수정으로 이번에 빠진 (날짜,시프트)만 부분취소로 보고 Assign/History에서 제거한다.
-  removeCanceledAssignments_(key, oldShifts, mergedShifts);
   return true;
 }
 
@@ -485,7 +498,7 @@ function savePendingRecord_(key, name, pin, phone, shifts, locations, message, g
   const row = findRow_(sheet, 0, key);
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const newShifts = (shifts || []).filter(s => s.date >= todayStr);
-  const rowData = [key, name.trim(), toTextCell_(phone.trim()), toTextCell_(pin.trim()), new Date().toISOString(), JSON.stringify(newShifts), JSON.stringify(locations || []), '', (message || '').trim(), gender || '', '', adConsent || ''];
+  const rowData = [key, toTextCell_(name.trim()), toTextCell_(phone.trim()), toTextCell_(pin.trim()), new Date().toISOString(), JSON.stringify(newShifts), JSON.stringify(locations || []), '', toTextCell_((message || '').trim()), gender || '', '', adConsent || ''];
   if (row === -1) sheet.appendRow(rowData);
   else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
 }
@@ -521,9 +534,6 @@ function approvePending(key, edits, version, adminPw) {
   requireAdmin_(adminPw);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
-  let newKey = key;
-  let oldShifts = [];
-  let mergedShifts = [];
   try {
     const pendingSheet = getPendingSheet_();
     const pendingRow = findRow_(pendingSheet, 0, key);
@@ -546,13 +556,14 @@ function approvePending(key, edits, version, adminPw) {
       // 관리자 화면은 날짜별 근무지를 보내지 않으므로 근무자가 고른 값을 되살린다.
       shifts = mergeShiftExtras_(shifts, edits.shifts || []);
     }
-    newKey = makeKey_(name, pin);
+    const newKey = makeKey_(name, pin);
 
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, newKey);
     let existingAdminLocation = '';
     let existingAdminGender = '';
-    mergedShifts = shifts;
+    let oldShifts = [];
+    let mergedShifts = shifts;
     if (row > -1) {
       // 대기 중에 관리자가 같은 사람을 근무자 추가로 이미 등록한 경우다. 행을 새로 만들면 같은 key가
       // 2개가 되므로 그 행에 신청을 반영한다 — 근무자가 직접 저장했을 때(saveRecord)와 같은 규칙이다.
@@ -563,14 +574,14 @@ function approvePending(key, edits, version, adminPw) {
       const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
       mergedShifts = oldShifts.filter(s => s.date < todayStr).concat(shifts.filter(s => s.date >= todayStr));
     }
-    const rowData = [newKey, name, toTextCell_(phone), toTextCell_(pin), new Date().toISOString(), JSON.stringify(mergedShifts), JSON.stringify(locations), existingAdminLocation, p[8] || '', gender, existingAdminGender, p[11] || ''];
+    const rowData = [newKey, toTextCell_(name), toTextCell_(phone), toTextCell_(pin), new Date().toISOString(), JSON.stringify(mergedShifts), JSON.stringify(locations), existingAdminLocation, toTextCell_(p[8]), gender, existingAdminGender, p[11] || ''];
     if (row === -1) sheet.appendRow(rowData);
     else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
     pendingSheet.deleteRow(pendingRow);
+    removeCanceledAssignments_(newKey, oldShifts, mergedShifts);
   } finally {
     lock.releaseLock();
   }
-  removeCanceledAssignments_(newKey, oldShifts, mergedShifts);
   return true;
 }
 
@@ -742,16 +753,33 @@ function mergeShiftExtras_(oldShifts, newShifts) {
   });
 }
 
+// 관리자 화면은 이번 주~다음 주 날짜만 보여주고 고친다. 그 창 안의 날짜는 새 값으로 바꾸고, 창 밖(지난 주 이전)의
+// 기존 신청은 그대로 둔다 — 화면에 없던 날짜까지 새 값으로 덮으면 지난 신청이 지워진다.
+function replaceWindowShifts_(oldShifts, newShifts) {
+  const win = getCurrentTwoWeekDateSet_();
+  return (oldShifts || []).filter(s => !win.has(s.date))
+    .concat((newShifts || []).filter(s => win.has(s.date)));
+}
+
 // 관리자가 실제 배치 장소를 별도로 지정/변경 (신청 장소와 다를 수 있음)
 // 관리자가 근로자의 근무 일정(주간/야간)을 직접 수정
 function adminUpdateShifts(key, shifts, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getDataSheet_();
-  const row = findRow_(sheet, 0, key);
-  if (row === -1) return false;
-  let oldShifts = [];
-  try { oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
-  sheet.getRange(row, 6).setValue(JSON.stringify(mergeShiftExtras_(oldShifts, shifts)));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getDataSheet_();
+    const row = findRow_(sheet, 0, key);
+    if (row === -1) return false;
+    let oldShifts = [];
+    try { oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]'); } catch (e) { Logger.log('실패 원인: ' + e.message); }
+    const merged = replaceWindowShifts_(oldShifts, mergeShiftExtras_(oldShifts, shifts));
+    sheet.getRange(row, 6).setValue(JSON.stringify(merged));
+    // 관리자가 뺀 (날짜,시프트)의 배치·근로이력도 지운다. 남겨두면 일하지 않은 날이 근로일수에 들어간다.
+    removeCanceledAssignments_(key, oldShifts, merged);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
@@ -759,30 +787,37 @@ function adminUpdateShifts(key, shifts, adminPw) {
 // 각 값은 undefined/null(이름은 빈 문자열 포함)이면 기존 값을 유지하므로, 일부 필드만 넘겨도 나머지가 지워지지 않는다.
 function setContactInfo(oldKey, newName, phone, newPin, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getDataSheet_();
-  const row = findRow_(sheet, 0, oldKey);
-  if (row === -1) return false;
+  // reKeyRelatedSheets_가 Assign/History 등을 읽어둔 행 번호로 고치므로 행을 지우는 요청과 겹치지 않게 잠근다.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getDataSheet_();
+    const row = findRow_(sheet, 0, oldKey);
+    if (row === -1) return false;
 
-  const currentName = sheet.getRange(row, 2).getValue();
-  const finalName = (newName === undefined || newName === null || !String(newName).trim()) ? currentName : String(newName).trim();
-  const currentPhone = sheet.getRange(row, 3).getValue() || '';
-  const finalPhone = (phone === undefined || phone === null) ? currentPhone : phone;
-  const currentPin = sheet.getRange(row, 4).getValue() || '';
-  const finalPin = (newPin === undefined || newPin === null) ? currentPin : newPin;
-  const newKey = makeKey_(finalName, finalPin || '');
-  // 바꾼 뒤의 이름+생년월일이 다른 행에 이미 있으면 key가 같은 행이 2개가 되고, 이후 조회/저장은
-  // 첫 행만 찾아 나머지 행이 갱신되지 않으므로 아무것도 쓰지 않고 거부한다.
-  if (newKey !== oldKey && findRow_(sheet, 0, newKey) !== -1) {
-    throw new Error('같은 이름·생년월일의 근무자가 이미 등록되어 있어 변경할 수 없습니다.');
-  }
+    const currentName = sheet.getRange(row, 2).getValue();
+    const finalName = (newName === undefined || newName === null || !String(newName).trim()) ? currentName : String(newName).trim();
+    const currentPhone = sheet.getRange(row, 3).getValue() || '';
+    const finalPhone = (phone === undefined || phone === null) ? currentPhone : phone;
+    const currentPin = sheet.getRange(row, 4).getValue() || '';
+    const finalPin = (newPin === undefined || newPin === null) ? currentPin : newPin;
+    const newKey = makeKey_(finalName, finalPin || '');
+    // 바꾼 뒤의 이름+생년월일이 다른 행에 이미 있으면 key가 같은 행이 2개가 되고, 이후 조회/저장은
+    // 첫 행만 찾아 나머지 행이 갱신되지 않으므로 아무것도 쓰지 않고 거부한다.
+    if (newKey !== oldKey && findRow_(sheet, 0, newKey) !== -1) {
+      throw new Error('같은 이름·생년월일의 근무자가 이미 등록되어 있어 변경할 수 없습니다.');
+    }
 
-  sheet.getRange(row, 2).setValue(finalName);
-  sheet.getRange(row, 3).setValue(toTextCell_(finalPhone || ''));
-  sheet.getRange(row, 4).setValue(toTextCell_(finalPin || ''));
+    sheet.getRange(row, 2).setValue(toTextCell_(finalName));
+    sheet.getRange(row, 3).setValue(toTextCell_(finalPhone || ''));
+    sheet.getRange(row, 4).setValue(toTextCell_(finalPin || ''));
 
-  if (newKey !== oldKey) {
-    sheet.getRange(row, 1).setValue(newKey);
-    reKeyRelatedSheets_(oldKey, newKey, finalName !== currentName ? finalName : null);
+    if (newKey !== oldKey) {
+      sheet.getRange(row, 1).setValue(newKey);
+      reKeyRelatedSheets_(oldKey, newKey, finalName !== currentName ? finalName : null);
+    }
+  } finally {
+    lock.releaseLock();
   }
   return true;
 }
@@ -796,7 +831,7 @@ function reKeyRelatedSheets_(oldKey, newKey, newName) {
       const newAssignKey = makeAssignKey_(aData[i][1], aData[i][2], newKey);
       assignSheet.getRange(i + 1, 1).setValue(newAssignKey);
       assignSheet.getRange(i + 1, 4).setValue(newKey);
-      if (newName) assignSheet.getRange(i + 1, 5).setValue(newName);
+      if (newName) assignSheet.getRange(i + 1, 5).setValue(toTextCell_(newName));
     }
   }
 
@@ -842,7 +877,6 @@ function setShiftLocation(key, date, location, adminPw) {
   requireAdmin_(adminPw);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
-  let effective = '';
   try {
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, key);
@@ -862,11 +896,10 @@ function setShiftLocation(key, date, location, adminPw) {
     else target.location = location;
 
     sheet.getRange(row, 6).setValue(JSON.stringify(shifts));
-    effective = target.location || baseLocation;
+    updateAssignLocation_(key, date, target.location || baseLocation);
   } finally {
     lock.releaseLock();
   }
-  updateAssignLocation_(key, date, effective);
   return true;
 }
 
@@ -918,16 +951,16 @@ function batchSetShiftLocations(list, location, adminPw) {
       });
       if (changed) sheet.getRange(i + 1, 6).setValue(JSON.stringify(shifts));
     });
+
+    // 이미 배치된 날짜는 Assign K열도 맞춘다(updateAssignLocation_과 같은 일을 시트 한 번 읽기로).
+    const assignSheet = getAssignSheet_();
+    const assignData = assignSheet.getDataRange().getValues();
+    for (let i = 1; i < assignData.length; i++) {
+      const k = assignData[i][3] + '|' + toDateStr_(assignData[i][1]);
+      if (Object.prototype.hasOwnProperty.call(moved, k)) assignSheet.getRange(i + 1, 11).setValue(moved[k]);
+    }
   } finally {
     lock.releaseLock();
-  }
-
-  // 이미 배치된 날짜는 Assign K열도 맞춘다(updateAssignLocation_과 같은 일을 시트 한 번 읽기로).
-  const assignSheet = getAssignSheet_();
-  const assignData = assignSheet.getDataRange().getValues();
-  for (let i = 1; i < assignData.length; i++) {
-    const k = assignData[i][3] + '|' + toDateStr_(assignData[i][1]);
-    if (Object.prototype.hasOwnProperty.call(moved, k)) assignSheet.getRange(i + 1, 11).setValue(moved[k]);
   }
   return { saved: Object.keys(moved).length, skipped: skipped };
 }
@@ -937,8 +970,6 @@ function deleteRecord(name, pin) {
   // 취소 시점에 신청되어 있던 (날짜,시프트)의 배치만 Assign/History에서 제거하되,
   // 이미 지난 날짜(오늘 이전)의 배치/이력은 saveRecord와 동일하게 그대로 보존한다.
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  let oldShifts = [];
-  let pastOldShifts = [];
   // "Data에 없음"을 확인한 뒤 신규데이터 행을 지우기 전에 관리자의 승인이 끼어들면, 신청이 Data로
   // 옮겨진 채 남아 취소했다고 안내받은 근무자가 그대로 배치 대상이 된다. 찾기~쓰기를 잠가 막는다.
   const lock = LockService.getScriptLock();
@@ -947,11 +978,12 @@ function deleteRecord(name, pin) {
     const sheet = getDataSheet_();
     const row = findRow_(sheet, 0, key);
     if (row > -1) {
-      oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
-      pastOldShifts = oldShifts.filter(s => s.date < todayStr);
+      const oldShifts = JSON.parse(sheet.getRange(row, 6).getValue() || '[]');
+      const pastOldShifts = oldShifts.filter(s => s.date < todayStr);
       // Data 행을 지우면 같은 key의 Roster/PastMonthly/History 행이 전체신청자 목록에 나오지 않는
       // 고아로 남으므로, 사람(행)은 남기고 오늘 이후 신청만 비운다.
       sheet.getRange(row, 5, 1, 2).setValues([[new Date().toISOString(), JSON.stringify(pastOldShifts)]]);
+      removeCanceledAssignments_(key, oldShifts, pastOldShifts);
     } else {
       // 승인 전인 신규 신청은 다른 시트에 딸린 행이 없으므로 행째 지운다.
       deletePendingRow_(key);
@@ -959,7 +991,6 @@ function deleteRecord(name, pin) {
   } finally {
     lock.releaseLock();
   }
-  removeCanceledAssignments_(key, oldShifts, pastOldShifts);
   return true;
 }
 
@@ -1045,14 +1076,17 @@ function makeAppliedLookup_() {
   };
 }
 
-function getAssignments(adminPw) {
+// fromDate('yyyy-MM-dd')를 넘기면 그 날짜 이전 배치는 빼고 돌려준다. 없으면 전체.
+function getAssignments(adminPw, fromDate) {
   requireAdmin_(adminPw);
   const sheet = getAssignSheet_();
   const data = sheet.getDataRange().getValues();
   const list = [];
   for (let i = 1; i < data.length; i++) {
+    const date = toDateStr_(data[i][1]);
+    if (fromDate && date < fromDate) continue;
     list.push({
-      date: toDateStr_(data[i][1]), shift: data[i][2], key: data[i][3],
+      date: date, shift: data[i][2], key: data[i][3],
       name: data[i][4], gender: data[i][5], floor: data[i][6],
       isEducation: data[i][7] === true || data[i][7] === 'TRUE',
       isNew: data[i][8] === true || data[i][8] === 'TRUE',
@@ -1080,7 +1114,7 @@ function saveAssignment(date, shift, key, name, gender, floor, isEducation, isNe
     if (row === -1 && !makeAppliedLookup_()(key, date, shift)) return false;
     const location = makeLocationLookup_()(key, date) || '';
     const assignGender = isWomenWage ? '여' : gender;
-    const rowData = [assignKey, date, shift, key, name, assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location, transport || ''];
+    const rowData = [assignKey, date, shift, key, toTextCell_(name), assignGender, floor, !!isEducation, !!isNew, !!isWomenWage, location, transport || ''];
     if (row === -1) sheet.appendRow(rowData);
     else sheet.getRange(row, 1, 1, 12).setValues([rowData]);
     logHistory_(key, date);
@@ -1114,7 +1148,7 @@ function batchSaveAssignments(list, adminPw) {
         return;
       }
       const assignGender = item.isWomenWage ? '여' : item.gender;
-      const rowData = [assignKey, item.date, item.shift, item.key, item.name, assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, locationAt(item.key, item.date) || '', item.transport || ''];
+      const rowData = [assignKey, item.date, item.shift, item.key, toTextCell_(item.name), assignGender, item.floor, !!item.isEducation, !!item.isNew, !!item.isWomenWage, locationAt(item.key, item.date) || '', item.transport || ''];
       if (!row) {
         sheet.appendRow(rowData);
         keyToRow[assignKey] = sheet.getLastRow();
@@ -1134,47 +1168,59 @@ function batchSaveAssignments(list, adminPw) {
 
 function removeAssignment(date, shift, key, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getAssignSheet_();
-  const assignKey = makeAssignKey_(date, shift, key);
-  const row = findRow_(sheet, 0, assignKey);
-  if (row > -1) sheet.deleteRow(row);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getAssignSheet_();
+    const assignKey = makeAssignKey_(date, shift, key);
+    const row = findRow_(sheet, 0, assignKey);
+    if (row > -1) sheet.deleteRow(row);
 
-  // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거
-  const otherShift = shift === 'day' ? 'night' : 'day';
-  const otherAssignKey = makeAssignKey_(date, otherShift, key);
-  const stillHas = findRow_(sheet, 0, otherAssignKey) > -1;
-  if (!stillHas) removeHistory_(key, date);
+    // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거
+    const otherShift = shift === 'day' ? 'night' : 'day';
+    const otherAssignKey = makeAssignKey_(date, otherShift, key);
+    const stillHas = findRow_(sheet, 0, otherAssignKey) > -1;
+    if (!stillHas) removeHistory_(key, date);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
 // 여러 명을 한 번에 배치취소 (서버 왕복을 1번으로 줄여서 빠르게 처리)
 function batchRemoveAssignments(list, adminPw) {
   requireAdmin_(adminPw);
-  const sheet = getAssignSheet_();
-  const data = sheet.getDataRange().getValues();
-  const keyToRow = {};
-  for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getAssignSheet_();
+    const data = sheet.getDataRange().getValues();
+    const keyToRow = {};
+    for (let i = 1; i < data.length; i++) keyToRow[data[i][0]] = i + 1;
 
-  const rowsToDelete = [];
-  list.forEach(item => {
-    const assignKey = makeAssignKey_(item.date, item.shift, item.key);
-    const row = keyToRow[assignKey];
-    if (row) rowsToDelete.push(row);
-  });
-  rowsToDelete.sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
+    const rowsToDelete = [];
+    list.forEach(item => {
+      const assignKey = makeAssignKey_(item.date, item.shift, item.key);
+      const row = keyToRow[assignKey];
+      if (row) rowsToDelete.push(row);
+    });
+    rowsToDelete.sort((a, b) => b - a).forEach(row => sheet.deleteRow(row));
 
-  // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거.
-  // findRow_(=시트 전체 재조회)를 item마다 부르는 대신, 이미 위에서 읽어둔 keyToRow/rowsToDelete로 판단한다.
-  const deletedRows = new Set(rowsToDelete);
-  const historyRemovals = [];
-  list.forEach(item => {
-    const otherShift = item.shift === 'day' ? 'night' : 'day';
-    const otherAssignKey = makeAssignKey_(item.date, otherShift, item.key);
-    const otherRow = keyToRow[otherAssignKey];
-    const stillHas = !!otherRow && !deletedRows.has(otherRow);
-    if (!stillHas) historyRemovals.push({ key: item.key, date: item.date });
-  });
-  batchRemoveHistory_(historyRemovals);
+    // 같은 날짜에 다른 시프트로 남아있는 배치가 없을 때만 이력에서도 제거.
+    // findRow_(=시트 전체 재조회)를 item마다 부르는 대신, 이미 위에서 읽어둔 keyToRow/rowsToDelete로 판단한다.
+    const deletedRows = new Set(rowsToDelete);
+    const historyRemovals = [];
+    list.forEach(item => {
+      const otherShift = item.shift === 'day' ? 'night' : 'day';
+      const otherAssignKey = makeAssignKey_(item.date, otherShift, item.key);
+      const otherRow = keyToRow[otherAssignKey];
+      const stillHas = !!otherRow && !deletedRows.has(otherRow);
+      if (!stillHas) historyRemovals.push({ key: item.key, date: item.date });
+    });
+    batchRemoveHistory_(historyRemovals);
+  } finally {
+    lock.releaseLock();
+  }
   return true;
 }
 
