@@ -1,0 +1,5 @@
+# 화이트리스트: Apps Script 소스와 매니페스트만 push
+**/**
+!appsscript.json
+!*.gs
+!*.html

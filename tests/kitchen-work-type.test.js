@@ -19,7 +19,7 @@ vm.runInContext(sharedHtml.match(/<script>([\s\S]*)<\/script>/)[1], shared);
 const S = (expr) => vm.runInContext(expr, shared);
 
 const server = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(root, 'WorkSystemSheet.gs'), 'utf8'), server);
+vm.runInContext(fs.readFileSync(path.join(root, 'ApplyWorkerSite', 'WorkSystemSheet.gs'), 'utf8'), server);
 
 // vm 안에서 만든 객체는 프로토타입이 달라 deepStrictEqual이 실패하므로 JSON으로 비교한다.
 const same = (actual, expected, msg) => assert.strictEqual(JSON.stringify(actual), JSON.stringify(expected), msg);
