@@ -865,7 +865,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
 
   function renderRow(r, groupList) {
     let nameCell;
-    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${nameWithBirth_(r.name, r.pin)}</span>`;
+    const nameSpan = `<span class="worker-name-click" onclick="showLocationMenu(event,'${r.key}')">${escapeHtml_(nameWithBirth_(r.name, r.pin))}</span>`;
     if (r.gender === '남' || r.gender === '여') {
       const posInGroup = groupList.findIndex(x => x.key === r.key);
       const upKey = posInGroup > 0 ? groupList[posInGroup-1].key : null;
@@ -1011,7 +1011,7 @@ function buildGenderFixPanel(records) {
   missing.forEach(rec => {
     const selId = 'gbatch_' + rec.key;
     html += `<div class="unassigned-chip" style="margin-bottom:6px;">
-      <span>${nameWithBirth_(rec.name, rec.pin)}</span>
+      <span>${escapeHtml_(nameWithBirth_(rec.name, rec.pin))}</span>
       <select id="${selId}" data-key="${rec.key}" class="gender-batch-select">
         <option value="">-</option><option value="남">남</option><option value="여">여</option>
       </select>
@@ -1684,7 +1684,7 @@ function buildWeekTable(weekDates, byDate, label, keyToTotalCount) {
       weekDates.forEach(d => {
         const full = (byDate[formatDate(d)] && byDate[formatDate(d)][shiftKey]) || [];
         const list = sortByCount(filterGender(full, g));
-        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>nameWithBirth_(p.name, p.pin)).join('<br>')||'-'}</div></td>`;
+        html += `<td><div class="cnt ${cls}">${list.length}명</div><div class="names">${list.map(p=>escapeHtml_(nameWithBirth_(p.name, p.pin))).join('<br>')||'-'}</div></td>`;
       });
       html += '</tr>';
     });
@@ -1723,13 +1723,13 @@ function buildApplicantTable(records, weekDatesSet, label, pStart, pEnd) {
     const genderOriginal = (r.genderEffective === '남' || r.genderEffective === '여') ? r.genderEffective : '남';
     const options = LOCATIONS.map(l => `<option value="${l}" ${l===locationOriginal?'selected':''}>${l}</option>`).join('');
     const genderOptions = ['남','여'].map(g => `<option value="${g}" ${g===genderOriginal?'selected':''}>${g}</option>`).join('');
-    html += `<tr><td><input type="checkbox" class="applicant-check" data-key="${r.key}"></td><td>${r.name}</td>
+    html += `<tr><td><input type="checkbox" class="applicant-check" data-key="${r.key}"></td><td>${escapeHtml_(r.name)}</td>
       <td><select id="${genderSelId}" class="global-gender-select" data-key="${r.key}" data-original="${genderOriginal}" style="font-size:12px; padding:4px;">${genderOptions}</select></td>
-      <td>${r.cnt}</td><td>${r.phone||'-'}</td><td>${r.requested||'-'}</td>
+      <td>${r.cnt}</td><td>${escapeHtml_(r.phone||'-')}</td><td>${escapeHtml_(r.requested||'-')}</td>
       <td><select id="${selId}" class="global-location-select" data-key="${r.key}" data-original="${locationOriginal}" style="font-size:12px; padding:4px;">${options}</select></td>
       <td><input type="text" id="${regionInpId}" class="global-region-input" data-key="${r.key}" data-original="${escapeHtml_(r.region)}" value="${escapeHtml_(r.region)}" placeholder="지역" style="width:80px; font-size:12px; padding:4px;"></td>
-      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openAdminEditShifts('${r.key}','${r.name}')">일정수정</button></td>
-      <td style="max-width:160px; font-size:12px; white-space:pre-wrap;">${r.message ? r.message : '-'}</td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" data-name="${escapeHtml_(r.name)}" onclick="openAdminEditShifts('${r.key}', this.dataset.name)">일정수정</button></td>
+      <td style="max-width:160px; font-size:12px; white-space:pre-wrap;">${escapeHtml_(r.message || '-')}</td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #2f6fed; background:#2f6fed; color:white; cursor:pointer;" onclick="saveAdminRow('${r.key}','${genderSelId}','${selId}','${regionInpId}')">저장</button></td></tr>`;
   });
   html += '</table></div>';
@@ -1880,7 +1880,7 @@ function renderAssignHistory() {
         const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
         const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
         const label = floorLabel(a);
-        return `<div style="margin-top:4px;"><div style="font-weight:700;">${a.name}</div>
+        return `<div style="margin-top:4px;"><div style="font-weight:700;">${escapeHtml_(a.name)}</div>
           <div style="font-size:11px;">${shiftSpan(a.shift)}${label ? ' ' + label : ''}${edu}${nw}${ww}</div></div>`;
       }).join('');
     } else if (dayList.length) {
@@ -2409,19 +2409,19 @@ function renderRoster() {
   merged.forEach(r => {
     const consented = r.adConsent === 'Y';
     html += `<tr>
-      <td><input type="checkbox" class="roster-select" data-key="${r.key}" data-phone="${r.phone||''}" data-name="${r.name}" data-consent="${consented ? '1' : '0'}"></td>
-      <td>${r.name}</td>
-      <td style="font-size:12px;">${r.birthDate || '-'}</td>
-      <td style="font-size:12px;">${r.phone||'-'}</td>
+      <td><input type="checkbox" class="roster-select" data-key="${r.key}" data-phone="${escapeHtml_(r.phone||'')}" data-name="${escapeHtml_(r.name)}" data-consent="${consented ? '1' : '0'}"></td>
+      <td>${escapeHtml_(r.name)}</td>
+      <td style="font-size:12px;">${escapeHtml_(r.birthDate || '-')}</td>
+      <td style="font-size:12px;">${escapeHtml_(r.phone||'-')}</td>
       <td><input type="date" id="health_${r.key}" class="global-health-input" data-key="${r.key}" data-original="${r.healthCertExpiry}" value="${r.healthCertExpiry}" style="width:130px; font-size:12px; padding:4px;"></td>
       <td><input type="date" id="hire_${r.key}" class="global-hire-input" data-key="${r.key}" data-original="${r.hireDate}" value="${r.hireDate}" style="width:130px; font-size:12px; padding:4px;"></td>
       <td style="font-size:12px; max-width:220px;">${r.monthlyText}</td>
       <td style="font-size:13px; font-weight:700; text-align:center;">${r.consecutiveMonths}</td>
-      <td style="font-size:12px; max-width:180px;">${r.recentLocations.length ? r.recentLocations.join(', ') : '-'}</td>
+      <td style="font-size:12px; max-width:180px;">${escapeHtml_(r.recentLocations.length ? r.recentLocations.join(', ') : '-')}</td>
       <td style="font-size:12px; text-align:center; color:${consented ? '#2f6fed' : '#999'};">${consented ? '동의' : '미동의'}</td>
       <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="saveRosterRow('${r.key}')">저장</button></td>
-      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="openPastHistoryEditor('${r.key}','${r.name}')">과거이력</button></td>
-      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" onclick="sendSingleSms('${r.phone||''}', ${consented ? '1' : '0'})">📱</button></td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" data-name="${escapeHtml_(r.name)}" onclick="openPastHistoryEditor('${r.key}', this.dataset.name)">과거이력</button></td>
+      <td><button style="font-size:11px; padding:4px 8px; border-radius:5px; border:1px solid #ccc; background:#fafafa; cursor:pointer;" data-phone="${escapeHtml_(r.phone||'')}" onclick="sendSingleSms(this.dataset.phone, ${consented ? '1' : '0'})">📱</button></td>
     </tr>`;
   });
   html += '</table></div>';
@@ -2672,7 +2672,7 @@ function openAdminAddOverlay() {
 
   const datalist = document.getElementById('adminAddNameList');
   const uniqueNames = [...new Set(lastRecords.map(r => r.name))];
-  datalist.innerHTML = uniqueNames.map(n => `<option value="${n}">`).join('');
+  datalist.innerHTML = uniqueNames.map(n => `<option value="${escapeHtml_(n)}">`).join('');
 
   renderAdminAddGender('');
   renderAdminAddLocation('');
@@ -2711,7 +2711,7 @@ function renderAdminAddPendingList() {
   wrap.style.display = 'block';
   listEl.innerHTML = adminAddPending.map((p, idx) => `
     <div class="unassigned-chip" style="margin-bottom:6px;">
-      <span>${p.name} (${p.shifts.length}일${p.gender ? ', ' + p.gender : ''}${p.locations[0] ? ', ' + p.locations[0] : ''})</span>
+      <span>${escapeHtml_(p.name)} (${p.shifts.length}일${p.gender ? ', ' + p.gender : ''}${p.locations[0] ? ', ' + p.locations[0] : ''})</span>
       <span class="x" style="cursor:pointer; color:#c0392b; font-weight:700;" onclick="removeAdminAddPending(${idx})">✕</span>
     </div>`).join('');
   btn.textContent = `전체 등록 (${adminAddPending.length}명)`;
@@ -2815,7 +2815,7 @@ document.addEventListener('input', function(e) {
     const matches = lastRecords.filter(r => r.name === val);
     document.getElementById('adminAddNameChoices').innerHTML = matches.length < 2 ? '' :
       '<div class="period-caption">같은 이름의 근무자가 ' + matches.length + '명 있습니다. 불러올 사람을 선택하세요. (새 근무자면 그대로 입력)</div>' +
-      matches.map(r => `<button class="secondary" style="width:auto; padding:6px 12px; margin:0 6px 6px 0;" onclick="loadAdminAddRecord('${r.key}')">${nameWithBirth_(r.name, r.pin)}</button>`).join('');
+      matches.map(r => `<button class="secondary" style="width:auto; padding:6px 12px; margin:0 6px 6px 0;" onclick="loadAdminAddRecord('${r.key}')">${escapeHtml_(nameWithBirth_(r.name, r.pin))}</button>`).join('');
     if (matches.length === 1) {
       loadAdminAddRecord(matches[0].key);
     } else {
@@ -3206,7 +3206,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
         const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
         const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
         const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-        const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+        const dispName = escapeHtml_(nameWithBirth_(a.name, keyToPin && keyToPin[a.key]));
         html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> ${seq.get(a)}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}</label></div>`;
       });
     });
@@ -3217,8 +3217,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
       const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
       const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-      const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
-      const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+      const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${escapeHtml_(assignmentLocation(a, recByKey))}</span>` : '';
+      const dispName = escapeHtml_(nameWithBirth_(a.name, keyToPin && keyToPin[a.key]));
       html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
     });
     html += '<div class="gender-label">여</div>';
@@ -3227,8 +3227,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const edu = a.isEducation ? ' <span class="edu-badge">■교육</span>' : '';
       const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
       const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
-      const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${assignmentLocation(a, recByKey)}</span>` : '';
-      const dispName = nameWithBirth_(a.name, keyToPin && keyToPin[a.key]);
+      const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${escapeHtml_(assignmentLocation(a, recByKey))}</span>` : '';
+      const dispName = escapeHtml_(nameWithBirth_(a.name, keyToPin && keyToPin[a.key]));
       html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
     });
   }
@@ -3250,15 +3250,15 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const wId = `w_${dateStr}_${shift}_${p.key}`;
       const sId = `s_${dateStr}_${shift}_${p.key}`;
       const tId = `t_${dateStr}_${shift}_${p.key}`;
-      const locTag = (currentLocationFilter === '전체' && p.location) ? ` <span class="loc-badge">${p.location}</span>` : '';
+      const locTag = (currentLocationFilter === '전체' && p.location) ? ` <span class="loc-badge">${escapeHtml_(p.location)}</span>` : '';
       const genderOpts = ['남','여'].map(g => `<option value="${g}" ${g===p.gender?'selected':''}>${g}</option>`).join('');
       const transports = transportsFor(p.location);
       const transportSel = transports.length === 0 ? ''
         : `<select id="${tId}"><option value="">이동수단</option>${transports.map(t => `<option value="${t}">${t}</option>`).join('')}</select>`;
       const transportArg = transports.length === 0 ? "''" : `document.getElementById('${tId}').value`;
       html += `<div class="unassigned-chip">
-        <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${p.name}">
-        <span>${nameWithBirth_(p.name, p.pin)}${locTag}</span>
+        <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${escapeHtml_(p.name)}">
+        <span>${escapeHtml_(nameWithBirth_(p.name, p.pin))}${locTag}</span>
         <select id="${gId}">${genderOpts}</select>
         <select id="${fId}" onchange="onFloorSelectChange(this)">${floorOptionsHtml(p.location)}</select>
         ${transportSel}
@@ -3320,7 +3320,7 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
     const withBirth = birthInCopyDates.has(dateStr);
     const previewText = withBirth ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
     html += `<div class="text-preview-wrap">
-      <textarea id="${taId}" readonly>${previewText}</textarea>
+      <textarea id="${taId}" readonly>${escapeHtml_(previewText)}</textarea>
       <button onclick="copyTextArea('${taId}','${msgId}')">📋 텍스트 복사</button>
       <label style="display:inline-flex; align-items:center; gap:6px; margin:0 0 0 8px; font-size:12px; font-weight:400; color:inherit; cursor:pointer;"><input type="checkbox" style="width:auto; margin:0;" onchange="toggleBirthInCopy('${dateStr}', this.checked)" ${withBirth ? 'checked' : ''}> 생년월일 포함</label>
       <span class="copy-msg" id="${msgId}"></span>
@@ -3436,7 +3436,8 @@ function loadAdmin() {
   const content = document.getElementById('adminContent');
   content.innerHTML = '<div class="empty">불러오는 중...</div>';
   showLoading();
-  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword), runScript('getTargets', adminPassword), runScript('getPendingRecords', adminPassword)])
+  // 배치판은 이번 주 월요일부터 2주만 그리므로 그 이전 배치 기록은 받지 않는다(Assign 시트는 매일 늘어난다).
+  Promise.all([runScript('getAdminData', adminPassword), runScript('getAssignments', adminPassword, formatDate(getTwoWeekDates()[0])), runScript('getTargets', adminPassword), runScript('getPendingRecords', adminPassword)])
     .then(function(results) {
       hideLoading();
       lastRecords = results[0] || [];
