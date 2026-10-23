@@ -1226,7 +1226,8 @@ function batchRemoveAssignments(list, adminPw) {
 
 // 관리자 '배치된 근무자' 탭에서 한 사람의 하루 배치를 통째로 맞춘다(배치 추가·취소·배치정보·근무지 수정).
 // 지난 근무 기록을 고치는 용도라 신청 여부는 보지 않고, 근무지도 Data로 다시 계산하지 않고 받은 값을 쓴다.
-// shifts: { day: null | {floor, transport, isEducation, isNew, isWomenWage, existed}, night: 같은 형태 }. null이면 그 시프트 배치를 지운다.
+// shifts: { day: null | {gender, floor, transport, isEducation, isNew, isWomenWage, existed}, night: 같은 형태 }. null이면 그 시프트 배치를 지운다.
+// gender가 비어 있으면(새로 켠 시프트) Data 성별을 쓴다.
 // existed는 화면을 열 때 이미 있던 배치라는 표시다. 그사이 신청 취소로 그 행이 지워졌으면 되살리지 않고
 // 'stale'을 돌려준다(2026-10-02 변경 이력의 되살아남 문제). 관리자가 새로 체크한 시프트만 새 행을 만든다.
 function saveAssignedDay(key, date, location, shifts, adminPw) {
@@ -1284,7 +1285,7 @@ function saveAssignedDay(key, date, location, shifts, adminPw) {
         stale = true;
         return;
       }
-      const rowData = [assignKey, date, shift, key, name, item.isWomenWage ? '여' : gender, item.floor || '', !!item.isEducation, !!item.isNew, !!item.isWomenWage, location || '', item.transport || ''];
+      const rowData = [assignKey, date, shift, key, name, item.isWomenWage ? '여' : (item.gender || gender), item.floor || '', !!item.isEducation, !!item.isNew, !!item.isWomenWage, location || '', item.transport || ''];
       if (row) sheet.getRange(row, 1, 1, 12).setValues([rowData]);
       else sheet.appendRow(rowData);
       kept = true;

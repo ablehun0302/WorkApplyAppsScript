@@ -32,7 +32,7 @@ function load(dataRows, assignRows, historyRows) {
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log() {} }
   });
-  vm.runInContext(fs.readFileSync(path.join(root, 'WorkSystemSheet.gs'), 'utf8'), server);
+  vm.runInContext(fs.readFileSync(path.join(root, 'ApplyWorkerSite', 'WorkSystemSheet.gs'), 'utf8'), server);
   const data = fakeSheet([['key']].concat(dataRows));
   const assign = fakeSheet([['assignKey']].concat(assignRows || []));
   const history = fakeSheet([['histKey']].concat(historyRows || []));
@@ -118,6 +118,13 @@ test('성별은 관리자 지정 성별을 쓰고 여임금이면 여로 기록�
   same(s.assign().map(r => r[5]), ['여', '여']);
 });
 
+test('화면에서 고른 성별이 있으면 Data 성별 대신 그 값을 쓰고, 여임금이면 여전히 여로 기록한다', () => {
+  const s = load([dataRow('k1', [], [A]), dataRow('k2', [], [A])]);
+  s.run('k1', '2026-10-01', A, { day: info('배치', { gender: '여' }), night: null });
+  s.run('k2', '2026-10-01', A, { day: info('배치', { gender: '남', isWomenWage: true }), night: null });
+  same(s.assign().map(r => r[5]), ['여', '여']);
+});
+
 test('화면을 연 뒤 신청 취소로 지워진 배치(existed)는 되살리지 않고, 새로 체크한 시프트는 만든다', () => {
   const s = load([dataRow('k1', [], [A])], [], [['k1_2026-10-15']]);
   const res = s.run('k1', '2026-10-15', A, { day: info('1층', { existed: true }), night: info('배치') });
@@ -199,7 +206,7 @@ test('화면: 그 주에 배치된 사람만, 성별(남→여)·이름순, 주�
   const rows = rowsOf(v,
     [rec('k1', '홍길동', '남', [A]), rec('k2', '김영희', '여', [A]), rec('k3', '가나다', '남', [A]), rec('k4', '없음', '남', [A])],
     [asg('2026-10-13', 'night', 'k1', A), asg('2026-10-13', 'day', 'k1', A), asg('2026-10-14', 'day', 'k1', B),
-     asg('2026-10-12', 'day', 'k2', A), asg('2026-10-15', 'day', 'k3', A), asg('2026-10-19', 'day', 'k4', A)]);
+     asg('2026-10-12', 'day', 'k2', A, { gender: '여' }), asg('2026-10-15', 'day', 'k3', A), asg('2026-10-19', 'day', 'k4', A)]);
   same(rows.map(r => [r.name, r.days]), [['가나다', 1], ['홍길동', 2], ['김영희', 1]]);
   const cell = rows[1].cells['2026-10-13'];
   assert.strictEqual(cell.location, A);
@@ -233,7 +240,7 @@ test('화면: 날짜 칸을 열고 야간을 추가·근무지를 바꿔 저장�
   const args = v.callsTo('saveAssignedDay')[0];
   same(args.slice(0, 3), ['k1', '2026-10-13', B]);
   same(args[3], {
-    day: { floor: '2층', transport: '', isEducation: false, isNew: true, isWomenWage: false, existed: true },
+    day: { gender: '남', floor: '2층', transport: '', isEducation: false, isNew: true, isWomenWage: false, existed: true },
     night: { floor: '배치', transport: '', isEducation: false, isNew: false, isWomenWage: false }
   });
 });
@@ -292,7 +299,7 @@ const cardsOf = (v, date, filter) =>
 test('일간: 그날 배치를 LOCATIONS 순서의 근무지 카드로 묶고 주간·야간은 성별·이름순, 지워진 사람은 배치 행 이름', () => {
   const v = loadDayView(
     [rec('k1', '홍길동', '남', [A]), rec('k2', '김영희', '여', [A]), rec('k3', '가나다', '남', [A])],
-    [asg('2026-10-14', 'day', 'k1', A), asg('2026-10-14', 'day', 'k2', A), asg('2026-10-14', 'day', 'k3', A),
+    [asg('2026-10-14', 'day', 'k1', A), asg('2026-10-14', 'day', 'k2', A, { gender: '여' }), asg('2026-10-14', 'day', 'k3', A),
      asg('2026-10-14', 'night', 'k2', C), asg('2026-10-14', 'night', 'k1', B), asg('2026-10-14', 'day', 'gone', B, { gender: '여' }),
      asg('2026-10-15', 'day', 'k1', A)]);
   same(cardsOf(v, '2026-10-14'), [
@@ -312,42 +319,21 @@ test('일간: 사람 줄에 성별별 번호·입력칸·저장·배치취소가
   v.W("renderAssignedWorkers(); setAssignedView('day');");
   const html = v.els.assignedContent.innerHTML;
   assert.ok(html.includes('남1.김철수 900101') && html.includes('남2.홍길동 900101'), '번호는 이름순으로 이어 매기고 이름 뒤에 생년월일');
-  assert.ok(html.includes("saveAssignedDayRow('k1','day')") && html.includes("cancelAssignedDayRow('k1','night')"));
+  assert.ok(html.includes('saveAssignedDayChanges()') && html.includes('cancelSelectedAssignedDay()'));
   assert.ok(html.includes('<option value="2층" selected>2층</option>'), '저장된 배치정보가 골라져 있다');
   assert.ok(/id="adn_day_k1" checked/.test(html) && !/id="adn_day_k2" checked/.test(html), '신규 체크는 저장된 값대로');
   assert.strictEqual(html.split('근무지는 주야 모두 적용').length - 1, 2, 'k1의 주간·야간 두 줄에만');
 });
 
-test('일간: 줄 저장은 그 시프트의 입력값과 다른 시프트의 지금 값을 하루치로 한 번에 보낸다', () => {
-  const v = loadDayView([rec('k1', '홍길동', '남', [A])],
-    [asg('2026-10-14', 'day', 'k1', A, { floor: '2층' }), asg('2026-10-14', 'night', 'k1', A, { floor: '3층', isEducation: true })]);
-  v.W('renderAssignedWorkers()');
-  v.els.adl_day_k1.value = B;
-  v.els.adf_day_k1.value = '배치';
-  v.els.adn_day_k1.checked = true;
-  v.W("saveAssignedDayRow('k1', 'day')");
-  const args = v.callsTo('saveAssignedDay')[0];
-  same(args.slice(0, 3), ['k1', '2026-10-14', B]);
-  same(args[3], {
-    day: { floor: '배치', transport: '', isEducation: false, isNew: true, isWomenWage: false, existed: true },
-    night: { floor: '3층', transport: '', isEducation: true, isNew: false, isWomenWage: false, existed: true }
-  });
-});
-
-test('일간: 배치취소는 그 시프트만 null로 보내고 근무지는 저장돼 있던 값을 쓴다', () => {
-  const v = loadDayView([rec('k1', '홍길동', '남', [A])],
-    [asg('2026-10-14', 'day', 'k1', C, { floor: '2층' }), asg('2026-10-14', 'night', 'k1', C, { floor: '3층' })]);
-  v.W('renderAssignedWorkers()');
-  v.els.adl_night_k1.value = B; // 줄에서 근무지를 바꿔 놓았어도 취소에는 영향이 없다
-  v.W("cancelAssignedDayRow('k1', 'night')");
-  const args = v.callsTo('saveAssignedDay')[0];
-  same(args.slice(0, 3), ['k1', '2026-10-14', C]);
-  same(args[3], { day: { floor: '2층', transport: '', isEducation: false, isNew: false, isWomenWage: false, existed: true }, night: null });
-
-  const v2 = loadDayView([rec('k1', '홍길동', '남', [A])], [asg('2026-10-14', 'day', 'k1', A)]);
-  v2.W('renderAssignedWorkers()');
-  v2.W("cancelAssignedDayRow('k1', 'day')");
-  same(v2.callsTo('saveAssignedDay')[0][3], { day: null, night: null });
+test('일간: 성별은 Assign 값이 골라져 있고, 줄에서 고른 성별을 저장값으로 읽는다', () => {
+  const v = loadDayView([rec('k1', '홍길동', '남', [A])], [asg('2026-10-14', 'day', 'k1', A, { gender: '여' })]);
+  v.W("renderAssignedWorkers(); setAssignedView('day');");
+  const html = v.els.assignedContent.innerHTML;
+  assert.ok(html.includes('여1.홍길동'), 'Data는 남이어도 Assign 성별로 번호를 매긴다');
+  assert.ok(/<select id="adg_day_k1"><option value="남" >남<\/option><option value="여" selected>여<\/option>/.test(html));
+  v.els.adg_day_k1.value = '남';
+  assert.strictEqual(v.W("readAssignedRow_('day_k1').gender"), '남');
+  assert.strictEqual(v.W("assignedInfoOf_(assignedAssignments[0]).gender"), '여', '화면에 없는 시프트는 Assign 성별 그대로 보낸다');
 });
 
 test('일간: 줄에서 근무지를 바꾸면 그 줄의 배치정보 목록만 새 근무지 것으로 바뀌고 입력한 값은 남는다', () => {

@@ -24,7 +24,7 @@ function load(dataRows, assignRows) {
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log() {} }
   });
-  vm.runInContext(fs.readFileSync(path.join(root, 'WorkSystemSheet.gs'), 'utf8'), server);
+  vm.runInContext(fs.readFileSync(path.join(root, 'ApplyWorkerSite', 'WorkSystemSheet.gs'), 'utf8'), server);
   const data = fakeSheet([['key']].concat(dataRows));
   const assign = fakeSheet([['assignKey']].concat(assignRows || []));
   server.getDataSheet_ = () => data;

@@ -727,12 +727,18 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
   setTimeout(() => document.addEventListener('click', closeFloorMenu, { once: true }), 0);
 }
 
+// 기존 배치를 다시 저장할 때 쓸 성별. 배치된 근무자 탭에서 고친 Assign 성별을 지킨다.
+// 여임금 배치는 서버가 '여'로 저장한 것이라 Data 성별로 돌아간다(여임금을 유지하면 서버가 다시 '여'로 저장).
+function assignGenderOf_(existing, rec) {
+  return (existing && !existing.isWomenWage && existing.gender) || (rec && (rec.adminGender || rec.gender)) || '남';
+}
+
 // floor/transport 중 undefined로 넘긴 값은 기존 배치값을 그대로 유지한다
 function setCellFloor(dateStr, shiftKey, key, floor, transport) {
   const rec = lastRecords.find(r => r.key === key);
-  const gender = (rec && (rec.adminGender || rec.gender)) || '남';
   const name = rec ? rec.name : '';
   const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+  const gender = assignGenderOf_(existing, rec);
   const floorVal = floor !== undefined ? floor : (existing ? existing.floor : '');
   const transportVal = transport !== undefined ? transport : (existing ? existing.transport : '');
   const isEducation = existing ? existing.isEducation : false;
@@ -1485,12 +1491,13 @@ function saveInfoEditChanges() {
   const removeList = [];
   Object.keys(pendingInfoChanges).forEach(key => {
     const rec = lastRecords.find(r => r.key === key);
-    const gender = (rec && (rec.adminGender || rec.gender)) || '남';
     const name = rec ? rec.name : '';
     Object.keys(pendingInfoChanges[key]).forEach(dateStr => {
       Object.keys(pendingInfoChanges[key][dateStr]).forEach(shiftKey => {
         const v = pendingInfoChanges[key][dateStr][shiftKey];
         if (v.remove) { removeList.push({ date: dateStr, shift: shiftKey, key: key }); return; }
+        const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+        const gender = assignGenderOf_(existing, rec);
         list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
       });
     });
@@ -1980,7 +1987,7 @@ function buildAssignedRows_(records, assignments, dateStrs, locationFilter) {
       name: rec ? rec.name : a.name,
       pin: rec ? (rec.pin || '') : '',
       phone: rec ? (rec.phone || '') : '',
-      gender: (rec && (rec.adminGender || rec.gender)) || a.gender || '',
+      gender: a.gender || (rec && (rec.adminGender || rec.gender)) || '',
       cells: {}
     });
     (row.cells[a.date] = row.cells[a.date] || { location: '', items: [] }).items.push(a);
@@ -2080,7 +2087,7 @@ function buildAssignedDayCards_(records, assignments, dateStr, locationFilter) {
       a: a,
       name: rec ? rec.name : a.name,
       pin: rec ? (rec.pin || '') : '',
-      gender: (rec && (rec.adminGender || rec.gender)) || a.gender || ''
+      gender: a.gender || (rec && (rec.adminGender || rec.gender)) || ''
     });
   });
   const locationRank = (l) => LOCATIONS.indexOf(l) === -1 ? LOCATIONS.length : LOCATIONS.indexOf(l);
@@ -2102,7 +2109,7 @@ function renderAssignedDay_() {
   const shiftCount = {};
   assignedAssignments.filter(a => a.date === date).forEach(a => { shiftCount[a.key] = (shiftCount[a.key] || 0) + 1; });
 
-  let html = `<div class="period-caption">${shortDate(date)} · 성별(남→여)·이름순 · 사람 줄에서 근무지·배치정보를 고치고 [변경사항 저장]을 누르세요</div>`;
+  let html = `<div class="period-caption">${shortDate(date)} · 성별(남→여)·이름순 · 사람 줄에서 성별·근무지·배치정보를 고치고 [변경사항 저장]을 누르세요</div>`;
   if (cards.length === 0) html += '<div class="empty">배치된 근무자 없음</div>';
   else html += `<div class="batch-row" style="margin-bottom:8px;">
       <button class="batch-all-btn" onclick="saveAssignedDayChanges()">✅ 변경사항 저장</button>
@@ -2169,6 +2176,7 @@ function assignedDayRowHtml_(p, shift, seq, location, hasBothShifts) {
   return `<div class="unassigned-chip" style="margin-bottom:4px;" onchange="markAssignedDayChanges_()">
     <input type="checkbox" class="assigned-day-select" data-key="${a.key}" data-shift="${shift}">
     <span style="font-weight:700;">${seq}.${nameWithBirth_(p.name, p.pin)}</span>
+    <select id="adg_${id}">${['남', '여'].map(g => `<option value="${g}" ${g === p.gender ? 'selected' : ''}>${g}</option>`).join('')}</select>
     <select id="adl_${id}" onchange="onAssignedRowLocationChange('${a.key}','${shift}')">${locOptions}</select>
     ${hasBothShifts ? '<span style="font-size:10px; color:#888;">근무지는 주야 모두 적용</span>' : ''}
     <span id="adfields_${id}" style="display:contents;">${assignedRowFieldsHtml_(id, values)}</span>
@@ -2192,6 +2200,7 @@ function readAssignedRow_(id) {
   const el = (prefix) => document.getElementById(prefix + '_' + id);
   const transport = el('adt');
   return {
+    gender: el('adg').value,
     location: el('adl').value,
     floor: el('adf').value,
     transport: transport ? transport.value : '',
@@ -2235,7 +2244,7 @@ function saveAssignedDayChanges() {
       }
       const v = readAssignedRow_(id);
       location = v.location;
-      shifts[shift] = { floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage, existed: true };
+      shifts[shift] = { gender: v.gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage, existed: true };
     });
     showLoading();
     return runScript('saveAssignedDay', key, date, location, shifts, adminPassword).then(ok => {
@@ -2272,7 +2281,7 @@ let assignedDayDraft = { key: '', date: '', location: '', day: null, night: null
 
 // existed: 열 때 이미 있던 배치. 그사이 근무자가 신청을 취소해 행이 지워졌으면 서버가 되살리지 않는다.
 function assignedInfoOf_(a) {
-  return a ? { floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage, existed: true } : null;
+  return a ? { gender: a.gender || '', floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage, existed: true } : null;
 }
 
 function openAssignedDay(key, dateStr) {
@@ -3519,10 +3528,6 @@ function loadAdmin() {
       hideLoading();
       lastRecords = results[0] || [];
       lastAssignments = results[1] || [];
-      // 배치 뒤 성별을 고쳐도 Assign 행은 그대로라 화면에서는 Data 성별을 우선한다(여성임금 배치는 저장 규칙대로 '여' 유지).
-      const genderByKey = {};
-      lastRecords.forEach(r => { genderByKey[r.key] = r.adminGender || r.gender; });
-      lastAssignments.forEach(a => { if (!a.isWomenWage && genderByKey[a.key]) a.gender = genderByKey[a.key]; });
       lastTargets = results[2] || [];
       lastPending = results[3] || [];
       renderAdmin(lastRecords, lastAssignments, lastTargets);
