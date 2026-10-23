@@ -120,7 +120,7 @@
             <button id="assignedViewDayBtn" class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="setAssignedView('day')">일간</button>
           </div>
           <label style="font-size:13px; display:flex; align-items:center; gap:4px; white-space:nowrap;">근무지
-            <select id="assignedLocationFilter" onchange="renderAssignedWorkers()" style="font-size:13px; padding:5px 8px;"></select>
+            <select id="assignedLocationFilter" onchange="if (confirmDropAssignedChanges_()) { this.dataset.prev = this.value; renderAssignedWorkers(); } else this.value = this.dataset.prev || ''" style="font-size:13px; padding:5px 8px;"></select>
           </label>
           <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
             <button class="secondary" style="width:auto; margin:0; padding:4px 10px;" onclick="moveAssignedWeek(-1)">◀</button>
@@ -579,6 +579,9 @@ function toggleBirthInCopy(dateStr, on) {
 let adminSubView = 'board';
 
 function switchAdminSubView(view) {
+  if (!confirmDropAssignedChanges_()) return;
+  // 버리기로 한 줄이 숨은 채 남아 있으면 다른 탭끼리 옮길 때도 경고가 뜬다. 돌아오면 loadAssignedWorkers가 다시 그린다.
+  if (view !== 'assigned') document.getElementById('assignedContent').innerHTML = '';
   adminSubView = view;
   localStorage.setItem('lastAdminSubView', view);
   document.getElementById('subtabBoard').classList.toggle('active', view==='board');
@@ -1943,6 +1946,7 @@ function loadAssignedWorkers() {
 
 // 주를 넘기면 일간 보기에서 고른 날짜도 같은 요일로 따라간다.
 function moveAssignedWeek(delta) {
+  if (!confirmDropAssignedChanges_()) return;
   const dayIdx = assignedWeekDateStrs().indexOf(assignedSelectedDate);
   assignedWeekStart.setDate(assignedWeekStart.getDate() + delta * 7);
   if (dayIdx > -1) assignedSelectedDate = assignedWeekDateStrs()[dayIdx];
@@ -1950,11 +1954,13 @@ function moveAssignedWeek(delta) {
 }
 
 function setAssignedView(view) {
+  if (!confirmDropAssignedChanges_()) return;
   assignedView = view;
   renderAssignedWorkers();
 }
 
 function selectAssignedDate(dateStr) {
+  if (!confirmDropAssignedChanges_()) return;
   assignedSelectedDate = dateStr;
   renderAssignedWorkers();
 }
@@ -2096,8 +2102,13 @@ function renderAssignedDay_() {
   const shiftCount = {};
   assignedAssignments.filter(a => a.date === date).forEach(a => { shiftCount[a.key] = (shiftCount[a.key] || 0) + 1; });
 
-  let html = `<div class="period-caption">${shortDate(date)} · 성별(남→여)·이름순 · 사람 줄에서 근무지·배치정보를 고치고 [저장]을 누르세요</div>`;
+  let html = `<div class="period-caption">${shortDate(date)} · 성별(남→여)·이름순 · 사람 줄에서 근무지·배치정보를 고치고 [변경사항 저장]을 누르세요</div>`;
   if (cards.length === 0) html += '<div class="empty">배치된 근무자 없음</div>';
+  else html += `<div class="batch-row" style="margin-bottom:8px;">
+      <button class="batch-all-btn" onclick="saveAssignedDayChanges()">✅ 변경사항 저장</button>
+      <button class="batch-all-btn" onclick="document.querySelectorAll('.assigned-day-select').forEach(cb => { cb.checked = false; })">전체 해제</button>
+      <button class="batch-all-btn danger-batch" onclick="cancelSelectedAssignedDay()">🗑 선택 배치취소</button>
+    </div>`;
   cards.forEach(card => {
     html += `<div class="card" style="margin-bottom:10px;">
       <div style="font-weight:700; border-bottom:1px solid #eee; padding-bottom:4px;">${card.location || '-'} <span style="font-weight:400; color:#888;">· 총 ${card.day.length + card.night.length}명</span></div>`;
@@ -2114,7 +2125,39 @@ function renderAssignedDay_() {
     html += '</div>';
   });
   content.innerHTML = html;
+  // 화면에 그려진 값 그대로를 원본으로 둔다(배치정보가 비어 있으면 select가 첫 선택지를 보여주므로 배치 행 값과 비교하면 안 된다).
+  assignedDayOriginals = {};
+  document.querySelectorAll('.assigned-day-select').forEach(cb => {
+    const id = cb.dataset.shift + '_' + cb.dataset.key;
+    assignedDayOriginals[id] = JSON.stringify(readAssignedRow_(id));
+  });
   applyPendingScrollRestore();
+}
+
+let assignedDayOriginals = {};
+
+// cb: 줄의 체크박스(.assigned-day-select). 노란 표시·저장 대상·이탈 경고가 모두 이 기준을 쓴다.
+function assignedRowChanged_(cb) {
+  const id = cb.dataset.shift + '_' + cb.dataset.key;
+  return JSON.stringify(readAssignedRow_(id)) !== assignedDayOriginals[id];
+}
+
+function assignedDayHasChanges_() {
+  return Array.from(document.querySelectorAll('.assigned-day-select')).some(assignedRowChanged_);
+}
+
+// 화면을 다시 그리기 전에 부른다. 저장 안 한 줄이 있으면 버려도 되는지 묻는다.
+function confirmDropAssignedChanges_() {
+  return !assignedDayHasChanges_() || confirm('저장하지 않은 변경사항이 사라집니다. 계속할까요?');
+}
+
+// 불러온 값과 달라진 줄을 노랗게 칠한다. 근무지를 바꾸면 다른 시프트 줄도 같이 바뀌므로 매번 모든 줄을 다시 본다.
+function markAssignedDayChanges_() {
+  document.querySelectorAll('.assigned-day-select').forEach(cb => {
+    const changed = assignedRowChanged_(cb);
+    cb.parentElement.style.background = changed ? '#fff3cd' : '';
+    cb.parentElement.style.boxShadow = changed ? 'inset 0 0 0 2px #f0b400' : '';
+  });
 }
 
 function assignedDayRowHtml_(p, shift, seq, location, hasBothShifts) {
@@ -2123,13 +2166,12 @@ function assignedDayRowHtml_(p, shift, seq, location, hasBothShifts) {
   const locOptions = (LOCATIONS.indexOf(location) > -1 ? '' : `<option value="${location}">${location || '-'}</option>`)
     + LOCATIONS.map(l => `<option value="${l}" ${l === location ? 'selected' : ''}>${l}</option>`).join('');
   const values = { location: location, floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage };
-  return `<div class="unassigned-chip" style="margin-bottom:4px;">
+  return `<div class="unassigned-chip" style="margin-bottom:4px;" onchange="markAssignedDayChanges_()">
+    <input type="checkbox" class="assigned-day-select" data-key="${a.key}" data-shift="${shift}">
     <span style="font-weight:700;">${seq}.${nameWithBirth_(p.name, p.pin)}</span>
     <select id="adl_${id}" onchange="onAssignedRowLocationChange('${a.key}','${shift}')">${locOptions}</select>
     ${hasBothShifts ? '<span style="font-size:10px; color:#888;">근무지는 주야 모두 적용</span>' : ''}
     <span id="adfields_${id}" style="display:contents;">${assignedRowFieldsHtml_(id, values)}</span>
-    <button onclick="saveAssignedDayRow('${a.key}','${shift}')">저장</button>
-    <button style="background:#fdecea; color:#c0392b;" onclick="cancelAssignedDayRow('${a.key}','${shift}')">배치취소</button>
   </div>`;
 }
 
@@ -2159,35 +2201,69 @@ function readAssignedRow_(id) {
   };
 }
 
+// 근무지는 주야 공통이라(saveAssignedDay가 하루치를 한 근무지로 저장) 같은 사람의 다른 시프트 줄도 같이 바꾼다.
 function onAssignedRowLocationChange(key, shift) {
-  const id = shift + '_' + key;
-  document.getElementById('adfields_' + id).innerHTML = assignedRowFieldsHtml_(id, readAssignedRow_(id));
+  const location = document.getElementById('adl_' + shift + '_' + key).value;
+  ['day', 'night'].forEach(s => {
+    const id = s + '_' + key;
+    const sel = document.getElementById('adl_' + id);
+    if (!sel) return;
+    sel.value = location;
+    document.getElementById('adfields_' + id).innerHTML = assignedRowFieldsHtml_(id, readAssignedRow_(id));
+  });
 }
 
-// 한 줄은 한 시프트만 다루므로 다른 시프트는 지금 값 그대로 함께 보낸다(saveAssignedDay는 하루치를 통째로 맞춘다).
-function assignedDayShifts_(key, dateStr, shift, info) {
-  const other = assignedAssignments.find(a => a.key === key && a.date === dateStr && a.shift !== shift);
-  const shifts = { day: null, night: null };
-  shifts[shift === 'day' ? 'night' : 'day'] = assignedInfoOf_(other);
-  shifts[shift] = info;
-  return shifts;
-}
-
-function saveAssignedDayRow(key, shift) {
-  const v = readAssignedRow_(shift + '_' + key);
-  const info = { floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage, existed: true };
-  sendAssignedDay_(key, assignedSelectedDate, v.location, assignedDayShifts_(key, assignedSelectedDate, shift, info), (msg) => alert(msg));
-}
-
-// 근무지는 줄에서 바꾼 값이 아니라 저장돼 있던 값으로 보낸다. 다른 시프트가 남아 있으면 그 근무지가 같이 바뀌면 안 된다.
-function cancelAssignedDayRow(key, shift) {
+// 바뀐 줄이 있는 사람마다 saveAssignedDay를 차례로 부른다. 화면에 없는 시프트(근무지 필터로 가려진 줄)는 지금 값 그대로 보낸다.
+// shortcut: 사람 수만큼 서버를 왕복한다. 한 번에 수십 명씩 고쳐 느려지면 서버에 일괄 저장 함수를 만든다.
+function saveAssignedDayChanges() {
   const date = assignedSelectedDate;
-  const asg = assignedAssignments.find(a => a.key === key && a.date === date && a.shift === shift);
-  if (!asg) return;
-  const rec = assignedRecords.find(r => r.key === key);
-  const recByKey = {};
-  if (rec) recByKey[key] = rec;
-  sendAssignedDay_(key, date, assignmentLocation(asg, recByKey), assignedDayShifts_(key, date, shift, null), (msg) => alert(msg));
+  const keys = [];
+  document.querySelectorAll('.assigned-day-select').forEach(cb => {
+    if (assignedRowChanged_(cb) && keys.indexOf(cb.dataset.key) === -1) keys.push(cb.dataset.key);
+  });
+  if (keys.length === 0) { alert('저장할 변경사항이 없습니다.'); return; }
+  let stale = false, failed = 0;
+  // 로딩 표시는 호출마다 켜고 끈다. 한 번만 켜면 여러 명 저장이 40초 제한(LOADING_TIMEOUT_MS)을 넘겨 지연 경고가 뜬다.
+  keys.reduce((prev, key) => prev.then(() => {
+    const shifts = {};
+    let location = '';
+    ['day', 'night'].forEach(shift => {
+      const id = shift + '_' + key;
+      if (!document.getElementById('adl_' + id)) {
+        shifts[shift] = assignedInfoOf_(assignedAssignments.find(a => a.key === key && a.date === date && a.shift === shift));
+        return;
+      }
+      const v = readAssignedRow_(id);
+      location = v.location;
+      shifts[shift] = { floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage, existed: true };
+    });
+    showLoading();
+    return runScript('saveAssignedDay', key, date, location, shifts, adminPassword).then(ok => {
+      hideLoading();
+      if (!ok) failed++;
+      if (ok === 'stale') stale = true;
+    }, err => { hideLoading(); throw err; });
+  }), Promise.resolve())
+    .then(() => {
+      if (failed) alert(failed + '명은 근무자 정보를 찾을 수 없어 저장하지 못했습니다.');
+      if (stale) alert('그사이 근무자가 신청을 취소해 지워진 배치는 되살리지 않았습니다.');
+    })
+    .catch(err => alert('저장 오류: ' + err.message + ' (앞서 저장된 사람은 그대로 저장됩니다)'))
+    .then(() => { saveScrollForRefresh(); loadAssignedWorkers(); });
+}
+
+function cancelSelectedAssignedDay() {
+  const checked = Array.from(document.querySelectorAll('.assigned-day-select:checked'));
+  if (checked.length === 0) { alert('배치취소할 사람을 먼저 체크해주세요.'); return; }
+  // 체크박스 바로 뒤 이름 칸("남1.홍길동")을 그대로 보여준다.
+  const names = checked.map(cb => (cb.dataset.shift === 'day' ? '☀️ 주간 ' : '🌙 야간 ') + cb.nextElementSibling.textContent);
+  const dropNote = assignedDayHasChanges_() ? '\n\n※ 저장하지 않은 변경사항은 사라집니다.' : '';
+  if (!confirm(`${shortDate(assignedSelectedDate)} 배치 ${checked.length}건을 취소합니다.\n\n${names.join('\n')}${dropNote}\n\n계속할까요?`)) return;
+  const list = checked.map(cb => ({ date: assignedSelectedDate, shift: cb.dataset.shift, key: cb.dataset.key }));
+  adminRun()
+    .withSuccessHandler(function() { saveScrollForRefresh(); loadAssignedWorkers(); })
+    .withFailureHandler(function(err) { alert('배치취소 오류: ' + err.message); })
+    .batchRemoveAssignments(list, adminPassword);
 }
 
 // 하루 배치 수정 창. 화면 입력은 assignedDayDraft에만 모았다가 저장할 때 한 번에 보낸다.
@@ -2299,6 +2375,7 @@ function saveAssignedDayEdit() {
   const draft = assignedDayDraft;
   const msgEl = document.getElementById('assignedDayMsg');
   if (!draft.key) { msgEl.innerHTML = '<div class="msg err">근무자를 선택해주세요.</div>'; return; }
+  if (!confirmDropAssignedChanges_()) return;
   if (!draft.location && (draft.day || draft.night)) { msgEl.innerHTML = '<div class="msg err">근무지를 선택해주세요.</div>'; return; }
   sendAssignedDay_(draft.key, draft.date, draft.location, { day: draft.day, night: draft.night },
     function(msg) { msgEl.innerHTML = '<div class="msg err">' + msg + '</div>'; });
@@ -3442,6 +3519,10 @@ function loadAdmin() {
       hideLoading();
       lastRecords = results[0] || [];
       lastAssignments = results[1] || [];
+      // 배치 뒤 성별을 고쳐도 Assign 행은 그대로라 화면에서는 Data 성별을 우선한다(여성임금 배치는 저장 규칙대로 '여' 유지).
+      const genderByKey = {};
+      lastRecords.forEach(r => { genderByKey[r.key] = r.adminGender || r.gender; });
+      lastAssignments.forEach(a => { if (!a.isWomenWage && genderByKey[a.key]) a.gender = genderByKey[a.key]; });
       lastTargets = results[2] || [];
       lastPending = results[3] || [];
       renderAdmin(lastRecords, lastAssignments, lastTargets);
