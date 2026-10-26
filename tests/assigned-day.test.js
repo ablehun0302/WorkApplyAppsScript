@@ -170,7 +170,7 @@ function loadAdminView() {
   const ctx = vm.createContext({
     Date: FakeDate,
     document: {
-      addEventListener() {}, getElementById: el, createElement: () => el('created' + Object.keys(els).length),
+      addEventListener() {}, getElementById: el, createElement: () => el('created' + Object.keys(els).length), body: el('body'),
       querySelectorAll: () => [], querySelector: () => null
     },
     window: { addEventListener() {}, scrollTo() {} },
@@ -376,6 +376,16 @@ test('배치판: 배치정보 수정에서 고른 성별로 저장하고, 성별
   const list = v.callsTo('batchSaveAssignments')[0][0];
   same(list.map(i => [i.key, i.date, i.gender, i.isNew, i.isWomenWage]),
     [['k1', '2026-10-14', '여', false, false], ['k1', '2026-10-15', '여', false, true], ['k2', '2026-10-14', '여', true, false]]);
+});
+
+test('배치판: 배치정보 수정을 켜면 지금 탭의 첫 배치정보가 골라져 있고, 탭을 옮기면 새 탭의 첫 배치정보로 바뀐다', () => {
+  const v = loadAdminView();
+  v.W(`lastRecords = []; lastAssignments = []; lastTargets = []; currentLocationFilter = '${A}'; toggleInfoEditMode();`);
+  same(JSON.parse(v.W('JSON.stringify([infoEditSelection.keep, infoEditSelection.floor])')), [false, '1층']);
+  v.W("setLocationFilter('포장우리와_금왕')");
+  assert.strictEqual(v.W('infoEditSelection.floor'), '포장');
+  v.W(`setInfoEditFloor(''); setLocationFilter('${A}')`);
+  assert.strictEqual(v.W('infoEditSelection.floor'), '', '배치 취소를 골랐으면 그대로');
 });
 
 console.log('\n' + passed + '개 통과');

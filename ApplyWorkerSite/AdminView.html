@@ -1291,7 +1291,8 @@ function renderInfoEditFloorButtons() {
   if (!row || !tRow) return;
   const floors = floorsFor(currentLocationFilter);
   const transports = transportsFor(currentLocationFilter);
-  if (floors.indexOf(infoEditSelection.floor) === -1) infoEditSelection.floor = '';
+  // 탭을 옮겨 고른 층이 새 탭에 없으면 첫 배치정보로 바꾼다('배치 취소'로 바뀌면 칸을 누를 때 배치가 지워진다).
+  if (infoEditSelection.floor && floors.indexOf(infoEditSelection.floor) === -1) infoEditSelection.floor = floors[0];
   if (transports.indexOf(infoEditSelection.transport) === -1) infoEditSelection.transport = '';
   row.innerHTML = `<button type="button" class="info-edit-floor-btn" data-keep="1" onclick="setInfoEditKeep()">배치정보 유지</button>` + ['', ...floors].map(f => f === '기타'
     ? `<button type="button" class="info-edit-floor-btn" id="infoEditEtcBtn" data-floor="기타" onclick="setInfoEditEtcFloor()">기타</button>`
@@ -1517,7 +1518,8 @@ function toggleInfoEditMode() {
   }
   clearPendingInfoChanges_();
   infoEditMode = !infoEditMode;
-  if (infoEditMode) infoEditSelection = { keep: true, floor: '', transport: '', gender: '', isEducation: false, isNew: false, isWomenWage: false };
+  // 처음 고른 값은 지금 탭의 첫 배치정보다.
+  if (infoEditMode) infoEditSelection = { keep: false, floor: floorsFor(currentLocationFilter)[0], transport: '', gender: '', isEducation: false, isNew: false, isWomenWage: false };
   renderInfoEditFloorButtons();
   document.body.classList.toggle('info-edit-mode', infoEditMode);
   syncInfoEditToolbar();
