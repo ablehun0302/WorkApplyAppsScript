@@ -355,4 +355,27 @@ test('일간: ➕ 배치 추가 창은 일간 보기에서 고른 날짜로 열�
   assert.strictEqual(v.W('assignedDayDraft.date'), '2026-10-16');
 });
 
+// ---- 배치판 배치정보 수정 모드의 성별 ----
+test('배치판: 배치정보 수정에서 고른 성별로 저장하고, 성별 유지는 Assign 성별, 여임금은 여', () => {
+  const v = loadAdminView();
+  v.W(`lastRecords = ${JSON.stringify([rec('k1', '홍길동', '남', [A]), rec('k2', '김철수', '남', [A])])};
+       lastAssignments = ${JSON.stringify([asg('2026-10-14', 'day', 'k1', A), asg('2026-10-14', 'day', 'k2', A, { gender: '여' })])};
+       infoEditMode = true;`);
+  // 같은 값을 다시 누르면 원래대로 돌아간다(대기 목록에서 빠짐).
+  v.W("setInfoEditGender('여'); applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  assert.strictEqual(v.W('countPendingInfoChanges()'), 1);
+  v.W("applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  assert.strictEqual(v.W('countPendingInfoChanges()'), 0, '두 번 누르면 원래대로');
+  v.W("applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  // 성별 유지 + 신규: 고친 Assign 성별(여)을 지킨다.
+  v.W("setInfoEditGender(''); setInfoEditFlag('isNew', true); applyInfoEditSelectionToCell('2026-10-14', 'day', 'k2');");
+  // 남을 골라도 여임금이면 여.
+  v.W(`lastAssignments.push(${JSON.stringify(asg('2026-10-15', 'day', 'k1', A))});
+       setInfoEditGender('남'); setInfoEditFlag('isNew', false); setInfoEditFlag('isWomenWage', true);
+       applyInfoEditSelectionToCell('2026-10-15', 'day', 'k1'); saveInfoEditChanges();`);
+  const list = v.callsTo('batchSaveAssignments')[0][0];
+  same(list.map(i => [i.key, i.date, i.gender, i.isNew, i.isWomenWage]),
+    [['k1', '2026-10-14', '여', false, false], ['k1', '2026-10-15', '여', false, true], ['k2', '2026-10-14', '여', true, false]]);
+});
+
 console.log('\n' + passed + '개 통과');

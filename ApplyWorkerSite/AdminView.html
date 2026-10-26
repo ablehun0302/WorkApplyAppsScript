@@ -47,6 +47,11 @@
           <span class="info-edit-options-label">적용할 값:</span>
           <div class="info-edit-floor-row" id="infoEditFloorRow"></div>
           <div class="info-edit-floor-row" id="infoEditTransportRow"></div>
+          <div class="info-edit-floor-row">
+            <button type="button" class="info-edit-floor-btn" data-gender="" onclick="setInfoEditGender('')">성별 유지</button>
+            <button type="button" class="info-edit-floor-btn" data-gender="남" onclick="setInfoEditGender('남')">남</button>
+            <button type="button" class="info-edit-floor-btn" data-gender="여" onclick="setInfoEditGender('여')">여</button>
+          </div>
           <div class="info-edit-flag-row">
             <label><input type="checkbox" id="infoEditEduCb" onchange="setInfoEditFlag('isEducation', this.checked)"> 교육</label>
             <label><input type="checkbox" id="infoEditNewCb" onchange="setInfoEditFlag('isNew', this.checked)"> 신규</label>
@@ -661,6 +666,11 @@ function renderInfoFlags(a) {
   if (a.isWomenWage) flags.push('<span class="wage-badge">여임금</span>');
   return flags.length ? `<div class="mark-label">${flags.join(' ')}</div>` : '';
 }
+// 배치표 칸에 붙이는 배치(Assign) 성별. 배치되지 않은 칸은 배치 성별이 없어 비워 둔다.
+function renderGenderMark(a) {
+  if (!a || !a.gender) return '';
+  return `<div class="mark-label" style="color:${a.gender === '여' ? '#c0392b' : '#2f6fed'};">${a.gender}</div>`;
+}
 
 function closeFloorMenu() {
   const m = document.getElementById('floorMenuPopup');
@@ -706,6 +716,23 @@ function showFloorMenu(evt, dateStr, shiftKey, key) {
       menu.appendChild(btn);
     });
   }
+  // 성별 버튼도 층/이동수단처럼 saveAssignment로 배치를 확정시키고, 배치(Assign) 성별만 바꾼다(Data 성별은 그대로).
+  const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
+  const genderSep = document.createElement('div');
+  // 여임금 배치는 서버가 항상 '여'로 저장하므로 바꿀 수 없다.
+  genderSep.textContent = existing && existing.isWomenWage ? '성별 (여임금은 여 고정)' : '성별 (이 배치만)';
+  genderSep.style.cssText = 'font-size:11px; color:#888; padding:4px 10px 0; border-top:1px solid #eee; margin-top:2px;';
+  menu.appendChild(genderSep);
+  if (!(existing && existing.isWomenWage)) {
+    const curGender = existing ? existing.gender : '';
+    ['남', '여'].forEach(g => {
+      const btn = document.createElement('button');
+      btn.textContent = (g === curGender ? '✓ ' : '') + g;
+      btn.style.cssText = 'font-size:12px; padding:6px 10px; border:none; background:#fff6f0; border-radius:6px; cursor:pointer; text-align:left;';
+      btn.onclick = function(e) { e.stopPropagation(); setCellFloor(dateStr, shiftKey, key, undefined, undefined, g); };
+      menu.appendChild(btn);
+    });
+  }
   // 층/이동수단 버튼은 saveAssignment로 배치를 확정시키지만, 근무지 버튼은 신청 근무지만 바꾼다.
   const locSep = document.createElement('div');
   locSep.textContent = '근무지 (이 날짜만)';
@@ -733,12 +760,12 @@ function assignGenderOf_(existing, rec) {
   return (existing && !existing.isWomenWage && existing.gender) || (rec && (rec.adminGender || rec.gender)) || '남';
 }
 
-// floor/transport 중 undefined로 넘긴 값은 기존 배치값을 그대로 유지한다
-function setCellFloor(dateStr, shiftKey, key, floor, transport) {
+// floor/transport/gender 중 undefined로 넘긴 값은 기존 배치값을 그대로 유지한다
+function setCellFloor(dateStr, shiftKey, key, floor, transport, gender) {
   const rec = lastRecords.find(r => r.key === key);
   const name = rec ? rec.name : '';
   const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-  const gender = assignGenderOf_(existing, rec);
+  if (gender === undefined) gender = assignGenderOf_(existing, rec);
   const floorVal = floor !== undefined ? floor : (existing ? existing.floor : '');
   const transportVal = transport !== undefined ? transport : (existing ? existing.transport : '');
   const isEducation = existing ? existing.isEducation : false;
@@ -906,7 +933,7 @@ function buildWorkerWeekShiftTable(weekDates, shiftKey, shiftLabel, records, loc
       const asg = (assignments || []).find(a => a.date === dateStr && a.shift === shiftKey && a.key === r.key);
       const floor = asg ? asg.floor : '';
       const transport = asg ? asg.transport : '';
-      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}${renderInfoFlags(asg)}${kitchenCellLabel(r.rec, dateStr, shiftKey)}</td>`;
+      rowHtml += `<td id="${cellId}" class="date-cell floor-clickable" data-wchar="${WEEKDAY_LABELS[i]}" onclick="handleDateCellClick(event,'${dateStr}','${shiftKey}','${r.key}',true)">${renderFloorMark(WEEKDAY_LABELS[i], floor, transport)}${renderGenderMark(asg)}${renderInfoFlags(asg)}${kitchenCellLabel(r.rec, dateStr, shiftKey)}</td>`;
     });
     rowHtml += '</tr>';
     return rowHtml;
@@ -1254,7 +1281,8 @@ function saveDateEditChanges() {
 let infoEditMode = false;
 let pendingInfoChanges = {}; // { [key]: { [dateStr]: { [shiftKey]: {floor, transport, isEducation, isNew, isWomenWage} } } }
 // keep이 켜져 있으면('배치정보 유지') 칸의 층·이동수단은 그대로 두고 교육/신규/여임금만 적용한다.
-let infoEditSelection = { keep: true, floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
+// gender가 빈 값이면('성별 유지') 칸의 배치 성별을 그대로 둔다.
+let infoEditSelection = { keep: true, floor: '', transport: '', gender: '', isEducation: false, isNew: false, isWomenWage: false }; // 수정모드에서 칸 클릭 시 적용할 값
 
 // 현재 근무지 탭에 맞는 층/이동수단 버튼을 그린다('전체' 탭은 모든 업체의 옵션)
 function renderInfoEditFloorButtons() {
@@ -1288,6 +1316,12 @@ function syncInfoEditButtons_() {
     b.classList.toggle('selected', !keep && b.dataset.transport === infoEditSelection.transport);
     b.disabled = keep;
   });
+  document.querySelectorAll('.info-edit-floor-btn[data-gender]').forEach(b => b.classList.toggle('selected', b.dataset.gender === infoEditSelection.gender));
+}
+
+function setInfoEditGender(g) {
+  infoEditSelection.gender = g;
+  syncInfoEditButtons_();
 }
 
 function setInfoEditKeep() {
@@ -1327,9 +1361,20 @@ function setInfoEditFlag(flag, checked) {
 
 // 수정모드에서 배치된 칸을 클릭하면 툴바에서 골라둔 값을 즉시 반영(대기)하고,
 // 이미 그 값이 적용돼 있는 칸을 다시 클릭하면 원래 값으로 되돌린다(신청날짜 토글과 동일한 방식)
-function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
+// 칸의 저장된 배치정보. 배치가 없으면 성별은 빈 값(저장할 때 Data 성별을 쓴다).
+function infoOriginal_(dateStr, shiftKey, key) {
   const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-  const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+  return { asg: asg, floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', gender: infoGenderOf_(asg, key, !!(asg && asg.isWomenWage), ''), isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
+}
+
+// 여임금이면 서버가 '여'로 저장하므로 화면 대기값도 '여'로 맞춘다. chosen이 비면('성별 유지') 기존 배치 성별(assignGenderOf_ 규칙).
+function infoGenderOf_(asg, key, isWomenWage, chosen) {
+  if (isWomenWage) return '여';
+  return chosen || (asg ? assignGenderOf_(asg, lastRecords.find(r => r.key === key)) : '');
+}
+
+function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
+  const original = infoOriginal_(dateStr, shiftKey, key);
   // '배치정보 유지'면 원래 층·이동수단을 그대로 두고 체크박스만 적용한다.
   // '배치 취소'(층 빈 값)를 골랐으면 이동수단·체크박스와 무관하게 전부 비운다. 저장할 때 이 칸은 배치 행을 지운다(remove).
   const keep = infoEditSelection.keep;
@@ -1342,17 +1387,18 @@ function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
     isWomenWage: !cancel && infoEditSelection.isWomenWage,
     remove: cancel
   };
+  target.gender = cancel ? '' : infoGenderOf_(original.asg, key, target.isWomenWage, infoEditSelection.gender);
   const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
   const current = pending || original;
-  const alreadyApplied = current.floor === target.floor && current.transport === target.transport && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage && !!current.remove === target.remove;
+  const alreadyApplied = current.floor === target.floor && current.transport === target.transport && current.gender === target.gender && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage && !!current.remove === target.remove;
 
   setPendingInfo(dateStr, shiftKey, key, alreadyApplied ? original : target);
 }
 
 function setPendingInfo(dateStr, shiftKey, key, values) {
-  const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-  const original = { floor: asg ? asg.floor : '', transport: asg ? asg.transport : '', isEducation: !!(asg && asg.isEducation), isNew: !!(asg && asg.isNew), isWomenWage: !!(asg && asg.isWomenWage) };
-  const same = values.floor === original.floor && values.transport === original.transport && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage && !(values.remove && asg);
+  const original = infoOriginal_(dateStr, shiftKey, key);
+  const asg = original.asg;
+  const same = values.floor === original.floor && values.transport === original.transport && values.gender === original.gender && values.isEducation === original.isEducation && values.isNew === original.isNew && values.isWomenWage === original.isWomenWage && !(values.remove && asg);
 
   if (!pendingInfoChanges[key]) pendingInfoChanges[key] = {};
   if (same) {
@@ -1379,13 +1425,13 @@ function applyInfoCellPendingStyle(dateStr, shiftKey, key) {
   // 칸 내용을 통째로 다시 쓰므로 주방보조 근무형태·시간 표기도 다시 붙인다.
   const rec = lastRecords.find(r => r.key === key);
   const kitchenLabel = rec ? kitchenCellLabel(rec, dateStr, shiftKey) : '';
+  const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
   if (pending) {
     cell.classList.add('info-pending');
-    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport) + renderInfoFlags(pending) + kitchenLabel;
+    cell.innerHTML = renderFloorMark(wchar, pending.floor, pending.transport) + renderGenderMark(pending) + renderInfoFlags(pending) + kitchenLabel;
   } else {
     cell.classList.remove('info-pending');
-    const asg = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '') + renderInfoFlags(asg) + kitchenLabel;
+    cell.innerHTML = renderFloorMark(wchar, asg ? asg.floor : '', asg ? asg.transport : '') + renderGenderMark(asg) + renderInfoFlags(asg) + kitchenLabel;
   }
 }
 
@@ -1471,7 +1517,7 @@ function toggleInfoEditMode() {
   }
   clearPendingInfoChanges_();
   infoEditMode = !infoEditMode;
-  if (infoEditMode) infoEditSelection = { keep: true, floor: '', transport: '', isEducation: false, isNew: false, isWomenWage: false };
+  if (infoEditMode) infoEditSelection = { keep: true, floor: '', transport: '', gender: '', isEducation: false, isNew: false, isWomenWage: false };
   renderInfoEditFloorButtons();
   document.body.classList.toggle('info-edit-mode', infoEditMode);
   syncInfoEditToolbar();
@@ -1497,7 +1543,7 @@ function saveInfoEditChanges() {
         const v = pendingInfoChanges[key][dateStr][shiftKey];
         if (v.remove) { removeList.push({ date: dateStr, shift: shiftKey, key: key }); return; }
         const existing = lastAssignments.find(a => a.date === dateStr && a.shift === shiftKey && a.key === key);
-        const gender = assignGenderOf_(existing, rec);
+        const gender = v.gender || assignGenderOf_(existing, rec);
         list.push({ date: dateStr, shift: shiftKey, key: key, name: name, gender: gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
       });
     });
