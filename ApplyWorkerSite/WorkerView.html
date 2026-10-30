@@ -14,7 +14,7 @@
       <div style="font-weight:700;">본인 확인</div>
       <div class="sub">이름과 생년월일 앞 6자리(비밀번호 역할)로 기존 신청을 불러오거나 새로 신청하세요.</div>
       <label>이름</label>
-      <input type="text" id="name" placeholder="홍길동">
+      <input type="text" id="name" placeholder="홍길동" oninput="formatNameInput(this)">
       <label>생년월일 6자리</label>
       <input type="text" id="pin" placeholder="900101" maxlength="6" inputmode="numeric" oninput="formatPinInput(this)">
       <label>연락처 (신규 신청 시 필요)</label>
