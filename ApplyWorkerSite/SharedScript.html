@@ -21,6 +21,12 @@ function formatPinInput(el) {
   el.value = el.value.replace(/[^0-9]/g, '').slice(0, 6);
 }
 
+// 이름 입력칸: 숫자를 지운다. 바뀔 때만 대입해야 한글 조합 입력이 끊기지 않는다.
+function formatNameInput(el) {
+  const v = el.value.replace(/[0-9]/g, '');
+  if (v !== el.value) el.value = v;
+}
+
 // 연락처 입력칸: 숫자만 남겨 000-0000-0000 형태로 하이픈을 자동으로 넣는다.
 function formatPhoneInput(el) {
   const d = el.value.replace(/[^0-9]/g, '').slice(0, 11);

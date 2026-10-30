@@ -54,9 +54,19 @@
     display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
   .scroll-arrow-left { left: -6px; }
   .scroll-arrow-right { right: -6px; }
-  .side-by-side-col { flex: 0 0 auto; }
+  /* 표마다 자기 .table-wrap 안에서 스크롤해야 이름 열·요일 행 sticky가 걸린다 */
+  .side-by-side-col { flex: 1 1 0; min-width: 0; }
+  .side-by-side-col .table-wrap { max-height: 70vh; overflow: auto; }
+  @media (max-width: 600px) {
+    .side-by-side-wrap { flex-direction: column; }
+    .side-by-side-col { flex: none; width: 100%; }
+  }
   table.week-table.compact { min-width: 340px; font-size: 11px; }
   table.week-table.compact th, table.week-table.compact td { padding: 4px 3px; }
+  /* 셀 안 .mark-char(z-index:1)보다 위에 그려야 스크롤 시 고정 칸을 덮지 않는다 */
+  table.week-table.compact .rowhead { position: sticky; left: 0; z-index: 2; }
+  table.week-table.compact tr:first-child th { position: sticky; top: 0; z-index: 3; }
+  table.week-table.compact tr:first-child th.rowhead { z-index: 4; }
   table.week-table.compact tr:not(.gender-divider):nth-child(even) td,
   table.week-table.compact tr:not(.gender-divider):nth-child(even) th { background: #f2f3f6; }
   table.week-table.compact tr:not(.gender-divider):nth-child(odd) td,

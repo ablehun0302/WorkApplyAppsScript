@@ -170,7 +170,7 @@ function loadAdminView() {
   const ctx = vm.createContext({
     Date: FakeDate,
     document: {
-      addEventListener() {}, getElementById: el, createElement: () => el('created' + Object.keys(els).length),
+      addEventListener() {}, getElementById: el, createElement: () => el('created' + Object.keys(els).length), body: el('body'),
       querySelectorAll: () => [], querySelector: () => null
     },
     window: { addEventListener() {}, scrollTo() {} },
@@ -353,6 +353,39 @@ test('일간: ➕ 배치 추가 창은 일간 보기에서 고른 날짜로 열�
   const v = loadDayView([rec('k1', '홍길동', '남', [A])], []);
   v.W("renderAssignedWorkers(); setAssignedView('day'); selectAssignedDate('2026-10-16'); openAssignedDay('', assignedView === 'day' ? assignedSelectedDate : '');");
   assert.strictEqual(v.W('assignedDayDraft.date'), '2026-10-16');
+});
+
+// ---- 배치판 배치정보 수정 모드의 성별 ----
+test('배치판: 배치정보 수정에서 고른 성별로 저장하고, 성별 유지는 Assign 성별, 여임금은 여', () => {
+  const v = loadAdminView();
+  v.W(`lastRecords = ${JSON.stringify([rec('k1', '홍길동', '남', [A]), rec('k2', '김철수', '남', [A])])};
+       lastAssignments = ${JSON.stringify([asg('2026-10-14', 'day', 'k1', A), asg('2026-10-14', 'day', 'k2', A, { gender: '여' })])};
+       infoEditMode = true;`);
+  // 같은 값을 다시 누르면 원래대로 돌아간다(대기 목록에서 빠짐).
+  v.W("setInfoEditGender('여'); applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  assert.strictEqual(v.W('countPendingInfoChanges()'), 1);
+  v.W("applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  assert.strictEqual(v.W('countPendingInfoChanges()'), 0, '두 번 누르면 원래대로');
+  v.W("applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  // 성별 유지 + 신규: 고친 Assign 성별(여)을 지킨다.
+  v.W("setInfoEditGender(''); setInfoEditFlag('isNew', true); applyInfoEditSelectionToCell('2026-10-14', 'day', 'k2');");
+  // 남을 골라도 여임금이면 여.
+  v.W(`lastAssignments.push(${JSON.stringify(asg('2026-10-15', 'day', 'k1', A))});
+       setInfoEditGender('남'); setInfoEditFlag('isNew', false); setInfoEditFlag('isWomenWage', true);
+       applyInfoEditSelectionToCell('2026-10-15', 'day', 'k1'); saveInfoEditChanges();`);
+  const list = v.callsTo('batchSaveAssignments')[0][0];
+  same(list.map(i => [i.key, i.date, i.gender, i.isNew, i.isWomenWage]),
+    [['k1', '2026-10-14', '여', false, false], ['k1', '2026-10-15', '여', false, true], ['k2', '2026-10-14', '여', true, false]]);
+});
+
+test('배치판: 배치정보 수정을 켜면 지금 탭의 첫 배치정보가 골라져 있고, 탭을 옮기면 새 탭의 첫 배치정보로 바뀐다', () => {
+  const v = loadAdminView();
+  v.W(`lastRecords = []; lastAssignments = []; lastTargets = []; currentLocationFilter = '${A}'; toggleInfoEditMode();`);
+  same(JSON.parse(v.W('JSON.stringify([infoEditSelection.keep, infoEditSelection.floor])')), [false, '1층']);
+  v.W("setLocationFilter('포장우리와_금왕')");
+  assert.strictEqual(v.W('infoEditSelection.floor'), '포장');
+  v.W(`setInfoEditFloor(''); setLocationFilter('${A}')`);
+  assert.strictEqual(v.W('infoEditSelection.floor'), '', '배치 취소를 골랐으면 그대로');
 });
 
 console.log('\n' + passed + '개 통과');
