@@ -1380,17 +1380,20 @@ function applyInfoEditSelectionToCell(dateStr, shiftKey, key) {
   // '배치 취소'(층 빈 값)를 골랐으면 이동수단·체크박스와 무관하게 전부 비운다. 저장할 때 이 칸은 배치 행을 지운다(remove).
   const keep = infoEditSelection.keep;
   const cancel = !keep && infoEditSelection.floor === '';
+  const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
+  const current = pending || original;
+  // 교육/신규/여임금은 체크한 것만 칸에서 켜고 끈다(체크 안 한 표시는 그대로). 배치 취소 대기 칸은 원래 표시에서 시작한다.
+  const flagBase = current.remove ? original : current;
+  const flag = (f) => !cancel && (infoEditSelection[f] ? !flagBase[f] : flagBase[f]);
   const target = {
     floor: keep ? original.floor : infoEditSelection.floor,
     transport: keep ? original.transport : (cancel ? '' : infoEditSelection.transport),
-    isEducation: !cancel && infoEditSelection.isEducation,
-    isNew: !cancel && infoEditSelection.isNew,
-    isWomenWage: !cancel && infoEditSelection.isWomenWage,
+    isEducation: flag('isEducation'),
+    isNew: flag('isNew'),
+    isWomenWage: flag('isWomenWage'),
     remove: cancel
   };
   target.gender = cancel ? '' : infoGenderOf_(original.asg, key, target.isWomenWage, infoEditSelection.gender);
-  const pending = pendingInfoChanges[key] && pendingInfoChanges[key][dateStr] && pendingInfoChanges[key][dateStr][shiftKey];
-  const current = pending || original;
   const alreadyApplied = current.floor === target.floor && current.transport === target.transport && current.gender === target.gender && current.isEducation === target.isEducation && current.isNew === target.isNew && current.isWomenWage === target.isWomenWage && !!current.remove === target.remove;
 
   setPendingInfo(dateStr, shiftKey, key, alreadyApplied ? original : target);

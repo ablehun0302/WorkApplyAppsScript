@@ -378,6 +378,25 @@ test('배치판: 배치정보 수정에서 고른 성별로 저장하고, 성별
     [['k1', '2026-10-14', '여', false, false], ['k1', '2026-10-15', '여', false, true], ['k2', '2026-10-14', '여', true, false]]);
 });
 
+test('배치판: 배치정보 수정에서 교육/신규/여임금은 체크한 것만 칸에서 켜고 끈다', () => {
+  const v = loadAdminView();
+  v.W(`lastRecords = ${JSON.stringify([rec('k1', '홍길동', '남', [A]), rec('k2', '김철수', '남', [A])])};
+       lastAssignments = ${JSON.stringify([
+         asg('2026-10-14', 'day', 'k1', A, { isEducation: true, isNew: true, isWomenWage: true }),
+         asg('2026-10-14', 'day', 'k2', A, { isEducation: true })])};
+       infoEditMode = true; setInfoEditKeep();`);
+  const flags = (k) => JSON.parse(v.W(`(p => JSON.stringify([p.isEducation, p.isNew, p.isWomenWage]))(pendingInfoChanges['${k}']['2026-10-14'].day)`));
+  // case1: 교육·신규·여임금 칸에 여임금만 골라 누르면 여임금만 빠진다.
+  v.W("setInfoEditFlag('isWomenWage', true); applyInfoEditSelectionToCell('2026-10-14', 'day', 'k1');");
+  same(flags('k1'), [true, true, false]);
+  // case2: 교육만 있는 칸에 신규만 골라 누르면 교육·신규가 남는다.
+  v.W("setInfoEditFlag('isWomenWage', false); setInfoEditFlag('isNew', true); applyInfoEditSelectionToCell('2026-10-14', 'day', 'k2');");
+  same(flags('k2'), [true, true, false]);
+  // 다시 누르면 원래대로.
+  v.W("applyInfoEditSelectionToCell('2026-10-14', 'day', 'k2');");
+  assert.strictEqual(v.W('countPendingInfoChanges()'), 1);
+});
+
 test('배치판: 배치정보 수정을 켜면 지금 탭의 첫 배치정보가 골라져 있고, 탭을 옮기면 새 탭의 첫 배치정보로 바뀐다', () => {
   const v = loadAdminView();
   v.W(`lastRecords = []; lastAssignments = []; lastTargets = []; currentLocationFilter = '${A}'; toggleInfoEditMode();`);
