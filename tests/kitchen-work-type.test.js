@@ -612,7 +612,10 @@ test('배치 문자: 배치정보가 "배치"면 이름 뒤 "_배치"를 붙이�
 test('배치판: 목록과 복사 텍스트에 근무형태·시간이 붙는다', () => {
   const v = loadAdminView('', [kitchenWorker]);
   const html = v.W("buildShiftBlock('2026-10-08', 'day', [], [" + JSON.stringify(kitchenAssign) + "], null, null, " + REC_BY_KEY + ", { k1: '900101' }, {})");
-  assert.ok(html.indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '배치판 목록');
+  assert.ok(html.indexOf('남1.김주방 900101<span class="board-view">_1층</span> (파트 10~15)') > -1, '배치판 목록');
+  assert.ok(html.indexOf('class="board-edit') > -1, '펼치면 보이는 옵션 입력칸');
+  assert.ok(html.indexOf('class="assigned-select" data-key="k1" checked') > -1, '배치된 사람은 체크된 채로 나온다');
+  assert.strictEqual(html.indexOf('선택 배치취소'), -1, '선택 배치취소 버튼 없음');
   assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth").indexOf('남1.김주방_1층 (파트 10~15)') > -1, '복사 텍스트');
   assert.ok(v.W("shiftTextCache['text_2026-10-08_day'].withBirth").indexOf('남1.김주방 900101_1층 (파트 10~15)') > -1, '생년월일 포함 복사 텍스트');
 });
@@ -709,8 +712,9 @@ test('배치판: 물류우리와 탭은 목록도 배치정보로 묶고 성별 
   v.W("currentLocationFilter = '" + LOGI + "'");
   const html = v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(logiAssigns) + ", null, null, {}, { a1: '850505', a2: '900101', a3: '880808' }, {})");
   assert.ok(html.indexOf('<div class="gender-label">검수</div>') > -1, html);
-  assert.ok(html.indexOf('남1.김검수 900101_검수') > -1 && html.indexOf('여2.박주간 850505_주간지게') > -1, html);
-  assert.ok(html.indexOf('여2.박주간 850505_주간지게') > html.indexOf('여1.이검수 880808_검수'), '배치정보 순서');
+  const item = (name, floor) => html.indexOf(name + '<span class="board-view">_' + floor + '</span>');
+  assert.ok(item('남1.김검수 900101', '검수') > -1 && item('여2.박주간 850505', '주간지게') > -1, html);
+  assert.ok(item('여2.박주간 850505', '주간지게') > item('여1.이검수 880808', '검수'), '배치정보 순서');
   assert.ok(html.indexOf('현재 검수2 주간지게1 용접1') > -1, html);
   assert.strictEqual(html.indexOf('global-target-male'), -1, '성별 목표 입력 없음');
   assert.strictEqual(html.split('class="assigned-select"').length - 1, 4, '선택 체크박스는 그대로');
