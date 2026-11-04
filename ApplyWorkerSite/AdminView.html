@@ -511,6 +511,8 @@ function kitchenAssignSuffix(a, recByKey) {
 }
 // floorGroups(groupByFloor_ 결과)가 있으면 성별 대신 배치정보별로 묶은 문자를 만든다.
 function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey, floorGroups, textTail) {
+  // 배치한 사람이 아무도 없으면 날짜·시프트 줄도 쓰지 않는다
+  if (floorGroups ? floorGroups.length === 0 : maleList.length + femaleList.length === 0) return '';
   const lines = [];
   const nameTail = (a) => textTail ? textTail(a, recByKey) : textFloorSuffix_(a);
   lines.push(shortDate(dateStr) + ' ' + shiftLabel);
@@ -3446,8 +3448,8 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
     const dayText = shiftTextCache[`text_${dateStr}_day`];
     const nightText = shiftTextCache[`text_${dateStr}_night`];
     shiftTextCache[taId] = {
-      withBirth: dayText.withBirth + '\n\n' + nightText.withBirth,
-      withoutBirth: dayText.withoutBirth + '\n\n' + nightText.withoutBirth
+      withBirth: [dayText.withBirth, nightText.withBirth].filter(Boolean).join('\n\n'),
+      withoutBirth: [dayText.withoutBirth, nightText.withoutBirth].filter(Boolean).join('\n\n')
     };
     const withBirth = birthInCopyDates.has(dateStr);
     const previewText = withBirth ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
