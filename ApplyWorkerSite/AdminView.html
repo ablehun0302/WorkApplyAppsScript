@@ -781,7 +781,7 @@ function setCellFloor(dateStr, shiftKey, key, floor, transport, gender) {
     .saveAssignment(dateStr, shiftKey, key, name, gender, floorVal, isEducation, isNew, isWomenWage, transportVal, adminPassword);
 }
 
-// 배치 행 자체를 지운다(날짜별 배치판의 '선택 배치취소'와 같은 동작). 신청은 그대로 남는다.
+// 배치 행 자체를 지운다(날짜별 배치판에서 체크를 풀고 저장하는 것과 같은 동작). 신청은 그대로 남는다.
 function removeCellAssignment(dateStr, shiftKey, key) {
   adminRun()
     .withSuccessHandler(function() { closeFloorMenu(); saveScrollForRefresh(); loadAdmin(); })
@@ -2249,7 +2249,7 @@ function readAssignedRow_(id) {
   const transport = el('adt');
   return {
     gender: el('adg').value,
-    location: el('adl').value,
+    location: el('adl') ? el('adl').value : '', // 배치판 입력칸에는 근무지 칸이 없다
     floor: el('adf').value,
     transport: transport ? transport.value : '',
     isEducation: el('ade').checked,
@@ -3320,8 +3320,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
     <span class="tag ${shiftClass}">${shiftLabel}</span>`;
   if (!floorGroups) html += `
     <span class="target-inputs">
-      목표 남<input type="number" min="0" id="mt_${dateStr}_${shift}" class="global-target-male" data-date="${dateStr}" data-shift="${shift}" data-original="${maleTarget}" value="${maleTarget}">
-      여<input type="number" min="0" id="ft_${dateStr}_${shift}" class="global-target-female" data-date="${dateStr}" data-shift="${shift}" data-original="${femaleTarget}" value="${femaleTarget}">
+      목표 남<input type="number" min="0" id="mt_${dateStr}_${shift}" class="global-target-male" data-date="${dateStr}" data-shift="${shift}" data-original="${maleTarget}" value="${maleTarget}" oninput="markTargetChange_(this)">
+      여<input type="number" min="0" id="ft_${dateStr}_${shift}" class="global-target-female" data-date="${dateStr}" data-shift="${shift}" data-original="${femaleTarget}" value="${femaleTarget}" oninput="markTargetChange_(this)">
       <button onclick="saveTargetClick('${dateStr}','${shift}')">저장</button>
     </span>`;
   html += `
@@ -3341,7 +3341,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
         const nw = a.isNew ? ' <span class="new-badge">(신)●</span>' : '';
         const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
         const dispName = escapeHtml_(nameWithBirth_(a.name, keyToPin && keyToPin[a.key]));
-        html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> ${seq.get(a)}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}</label></div>`;
+        html += `<div class="numbered-item" onchange="markBoardAssignedChange_(this)"><label><input type="checkbox" class="assigned-select" data-key="${a.key}" checked> ${seq.get(a)}.${dispName}<span class="board-view">_${floorLabel(a)}${edu}${nw}${ww}</span></label>${boardAssignedEditHtml_(dateStr, shift, a, locOf(a))}</div>`;
       });
     });
   } else {
@@ -3353,7 +3353,7 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
       const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${escapeHtml_(assignmentLocation(a, recByKey))}</span>` : '';
       const dispName = escapeHtml_(nameWithBirth_(a.name, keyToPin && keyToPin[a.key]));
-      html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 남${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
+      html += `<div class="numbered-item" onchange="markBoardAssignedChange_(this)"><label><input type="checkbox" class="assigned-select" data-key="${a.key}" checked> 남${idx+1}.${dispName}<span class="board-view">_${floorLabel(a)}${edu}${nw}${ww}</span>${kitchenAssignSuffix(a, recByKey)}${locTag}</label>${boardAssignedEditHtml_(dateStr, shift, a, locOf(a))}</div>`;
     });
     html += '<div class="gender-label">여</div>';
     if (femaleList.length === 0) html += '<div style="color:#bbb; font-size:12px;">-</div>';
@@ -3363,16 +3363,10 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const ww = a.isWomenWage ? ' <span class="wage-badge">••여임금</span>' : '';
       const locTag = (currentLocationFilter === '전체' && assignmentLocation(a, recByKey)) ? ` <span class="loc-badge">${escapeHtml_(assignmentLocation(a, recByKey))}</span>` : '';
       const dispName = escapeHtml_(nameWithBirth_(a.name, keyToPin && keyToPin[a.key]));
-      html += `<div class="numbered-item"><label><input type="checkbox" class="assigned-select" data-key="${a.key}"> 여${idx+1}.${dispName}_${floorLabel(a)}${edu}${nw}${ww}${kitchenAssignSuffix(a, recByKey)}${locTag}</label></div>`;
+      html += `<div class="numbered-item" onchange="markBoardAssignedChange_(this)"><label><input type="checkbox" class="assigned-select" data-key="${a.key}" checked> 여${idx+1}.${dispName}<span class="board-view">_${floorLabel(a)}${edu}${nw}${ww}</span>${kitchenAssignSuffix(a, recByKey)}${locTag}</label>${boardAssignedEditHtml_(dateStr, shift, a, locOf(a))}</div>`;
     });
   }
   html += '</div>';
-  if (assignedForSlot.length > 0) {
-    html += `<div class="batch-row">
-      <button class="batch-all-btn" onclick="selectAllAssigned('${dateStr}','${shift}')">전체선택</button>
-      <button class="batch-all-btn danger-batch" onclick="batchUnassign('${dateStr}','${shift}')">🗑 선택 배치취소</button>
-    </div>`;
-  }
 
   if (unassigned.length > 0) {
     html += `<div class="chip-row" id="chiprow_${dateStr}_${shift}">`;
@@ -3389,9 +3383,8 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       const transports = transportsFor(p.location);
       const transportSel = transports.length === 0 ? ''
         : `<select id="${tId}"><option value="">이동수단</option>${transports.map(t => `<option value="${t}">${t}</option>`).join('')}</select>`;
-      const transportArg = transports.length === 0 ? "''" : `document.getElementById('${tId}').value`;
       html += `<div class="unassigned-chip">
-        <input type="checkbox" class="batch-select" id="${sId}" data-key="${p.key}" data-name="${escapeHtml_(p.name)}">
+        <input type="checkbox" class="batch-select" id="${sId}" data-date="${dateStr}" data-shift="${shift}" data-key="${p.key}" data-name="${escapeHtml_(p.name)}">
         <span>${escapeHtml_(nameWithBirth_(p.name, p.pin))}${locTag}</span>
         <select id="${gId}">${genderOpts}</select>
         <select id="${fId}" onchange="onFloorSelectChange(this)">${floorOptionsHtml(p.location)}</select>
@@ -3399,7 +3392,6 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
         <label><input type="checkbox" id="${eId}">교육</label>
         <label><input type="checkbox" id="${nId}">신규</label>
         <label><input type="checkbox" id="${wId}">여임금</label>
-        <button onclick="assignPerson('${dateStr}','${shift}','${p.key}', document.getElementById('${gId}').value, document.getElementById('${fId}').value, document.getElementById('${eId}').checked, document.getElementById('${nId}').checked, document.getElementById('${wId}').checked, ${transportArg})">배치</button>
       </div>`;
     });
     html += '</div>';
@@ -3407,6 +3399,9 @@ function buildShiftBlock(dateStr, shift, applicants, assignments, target, allowe
       <button class="batch-all-btn" onclick="selectAllUnassigned('${dateStr}','${shift}')">전체선택</button>
       <button class="batch-all-btn primary-batch" onclick="batchAssign('${dateStr}','${shift}')">✅ 선택 일괄배치</button>
     </div>`;
+  }
+  if (!floorGroups || assignedForSlot.length > 0 || unassigned.length > 0) {
+    html += `<div class="batch-row"><button class="batch-all-btn primary-batch" onclick="saveBoardAssignedChanges()">✅ 변경사항 저장</button></div>`;
   }
 
   // 복사 텍스트 칸은 buildAssignBoard가 날짜마다 주간·야간을 합쳐 하나로 그린다.
@@ -3466,6 +3461,10 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
   return html;
 }
 
+function markTargetChange_(inp) {
+  inp.classList.toggle('changed', inp.value !== inp.dataset.original);
+}
+
 function saveTargetClick(date, shift) {
   const maleTarget = document.getElementById(`mt_${date}_${shift}`).value;
   const femaleTarget = document.getElementById(`ft_${date}_${shift}`).value;
@@ -3488,19 +3487,7 @@ function batchAssign(dateStr, shift) {
   if (!container) return;
   const checked = container.querySelectorAll('.batch-select:checked');
   if (checked.length === 0) { alert('배치할 사람을 먼저 체크해주세요.'); return; }
-  const list = [];
-  checked.forEach(cb => {
-    const key = cb.dataset.key;
-    const name = cb.dataset.name;
-    const gender = document.getElementById(`g_${dateStr}_${shift}_${key}`).value;
-    const floor = document.getElementById(`f_${dateStr}_${shift}_${key}`).value;
-    const isEducation = document.getElementById(`e_${dateStr}_${shift}_${key}`).checked;
-    const isNew = document.getElementById(`n_${dateStr}_${shift}_${key}`).checked;
-    const isWomenWage = document.getElementById(`w_${dateStr}_${shift}_${key}`).checked;
-    const tSel = document.getElementById(`t_${dateStr}_${shift}_${key}`);
-    const transport = tSel ? tSel.value : '';
-    list.push({ date: dateStr, shift: shift, key: key, name: name, gender: gender, floor: floor, transport: transport, isEducation: isEducation, isNew: isNew, isWomenWage: isWomenWage });
-  });
+  const list = Array.from(checked).map(unassignedChipItem_);
   adminRun()
     .withSuccessHandler(function(res) {
       if (res && res.skipped) alert(res.skipped + '명은 그 날짜 신청이 취소되어 배치하지 못했습니다. 화면을 새로 불러옵니다.');
@@ -3510,36 +3497,78 @@ function batchAssign(dateStr, shift) {
     .batchSaveAssignments(list, adminPassword);
 }
 
-function assignPerson(date, shift, key, gender, floor, isEducation, isNew, isWomenWage, transport) {
-  const rec = lastRecords.find(r => r.key === key);
-  const name = rec ? rec.name : '';
-  adminRun()
-    .withSuccessHandler(function(ok) {
-      if (!ok) alert('그 날짜의 신청이 취소되어 배치하지 못했습니다. 화면을 새로 불러옵니다.');
-      saveScrollForRefresh(); loadAdmin();
-    })
-    .withFailureHandler(function(err) { alert('배치 오류: ' + err.message); })
-    .saveAssignment(date, shift, key, name, gender, floor, isEducation, isNew, isWomenWage, transport || '', adminPassword);
+// cb: 미배치 신청자 칩의 체크박스(.batch-select). 칩에서 고른 값으로 batchSaveAssignments 항목을 만든다.
+function unassignedChipItem_(cb) {
+  const dateStr = cb.dataset.date, shift = cb.dataset.shift, key = cb.dataset.key;
+  const el = (prefix) => document.getElementById(`${prefix}_${dateStr}_${shift}_${key}`);
+  const tSel = el('t');
+  return { date: dateStr, shift: shift, key: key, name: cb.dataset.name, gender: el('g').value, floor: el('f').value, transport: tSel ? tSel.value : '', isEducation: el('e').checked, isNew: el('n').checked, isWomenWage: el('w').checked };
 }
 
-function selectAllAssigned(dateStr, shift) {
-  const container = document.getElementById(`numlist_${dateStr}_${shift}`);
-  if (!container) return;
-  const boxes = container.querySelectorAll('.assigned-select');
-  const allChecked = Array.from(boxes).every(b => b.checked);
-  boxes.forEach(b => { b.checked = !allChecked; });
+// 펼친 날짜 카드에서만 보이는 배치 옵션 입력칸. 배치된 근무자 일간 보기의 입력칸을 그대로 쓴다.
+function boardAssignedEditHtml_(dateStr, shift, a, location) {
+  const id = 'b' + dateStr + '_' + shift + '_' + a.key;
+  const values = { location: location, floor: a.floor || '', transport: a.transport || '', isEducation: !!a.isEducation, isNew: !!a.isNew, isWomenWage: !!a.isWomenWage };
+  return `<span class="board-edit unassigned-chip" data-id="${id}" data-date="${dateStr}" data-shift="${shift}" data-key="${a.key}" data-name="${escapeHtml_(a.name)}">
+    <select id="adg_${id}">${['남', '여'].map(g => `<option value="${g}" ${g === a.gender ? 'selected' : ''}>${g}</option>`).join('')}</select>${assignedRowFieldsHtml_(id, values)}</span>`;
 }
 
-function batchUnassign(dateStr, shift) {
-  const container = document.getElementById(`numlist_${dateStr}_${shift}`);
-  if (!container) return;
-  const checked = container.querySelectorAll('.assigned-select:checked');
-  if (checked.length === 0) { alert('배치취소할 사람을 먼저 체크해주세요.'); return; }
-  const list = Array.from(checked).map(cb => ({ date: dateStr, shift: shift, key: cb.dataset.key }));
-  adminRun()
-    .withSuccessHandler(function() { saveScrollForRefresh(); loadAdmin(); })
-    .withFailureHandler(function(err) { alert('배치취소 오류: ' + err.message); })
-    .batchRemoveAssignments(list, adminPassword);
+let boardAssignedOriginals = {};
+
+// renderAdmin이 그린 직후 부른다. 층이 비어 있으면 select가 첫 선택지를 보여주므로 배치 행 값이 아니라 화면 값을 원본으로 둔다.
+function snapshotBoardAssigned_() {
+  boardAssignedOriginals = {};
+  document.querySelectorAll('.board-edit').forEach(el => { boardAssignedOriginals[el.dataset.id] = JSON.stringify(readAssignedRow_(el.dataset.id)); });
+}
+
+function boardAssignedChanged_(el) {
+  return JSON.stringify(readAssignedRow_(el.dataset.id)) !== boardAssignedOriginals[el.dataset.id];
+}
+
+// item: 배치된 사람 줄(.numbered-item). 체크를 풀면 배치취소 예정(빨강), 옵션을 바꾸면 수정 예정(노랑).
+function markBoardAssignedChange_(item) {
+  const removing = !item.querySelector('.assigned-select').checked;
+  const changed = !removing && boardAssignedChanged_(item.querySelector('.board-edit'));
+  item.style.background = removing ? '#f8d7da' : changed ? '#fff3cd' : '';
+  item.style.boxShadow = removing ? 'inset 0 0 0 2px #c0392b' : '';
+  item.style.color = removing ? '#c0392b' : '';
+  item.style.fontWeight = removing ? '700' : '';
+  item.style.textDecoration = removing ? 'line-through' : '';
+}
+
+// 체크박스는 배치 상태다. 배치된 사람의 체크를 풀면 배치취소, 미배치 신청자를 체크하면 배치, 옵션을 바꾸면 수정한다.
+// 버튼은 시프트마다 있지만 배치판 전체의 변경을 같이 저장한다. 저장 후 다시 그리면 나머지 변경이 사라지기 때문이다.
+function saveBoardAssignedChanges() {
+  const saveList = [], removeList = [];
+  document.querySelectorAll('.board-edit').forEach(el => {
+    const d = el.dataset;
+    if (!el.parentElement.querySelector('.assigned-select').checked) {
+      removeList.push({ date: d.date, shift: d.shift, key: d.key });
+      return;
+    }
+    if (!boardAssignedChanged_(el)) return;
+    const v = readAssignedRow_(d.id);
+    saveList.push({ date: d.date, shift: d.shift, key: d.key, name: d.name, gender: v.gender, floor: v.floor, transport: v.transport, isEducation: v.isEducation, isNew: v.isNew, isWomenWage: v.isWomenWage });
+  });
+  document.querySelectorAll('.batch-select:checked').forEach(cb => saveList.push(unassignedChipItem_(cb)));
+  // 목표인원은 남/여를 함께 저장해야 하므로(빠진 값은 0이 된다) 한쪽만 바뀌어도 두 값을 같이 보낸다.
+  const targetList = [];
+  document.querySelectorAll('.global-target-male').forEach(m => {
+    const f = document.getElementById(m.id.replace(/^mt_/, 'ft_'));
+    if (m.value !== m.dataset.original || f.value !== f.dataset.original) targetList.push({ date: m.dataset.date, shift: m.dataset.shift, maleTarget: m.value, femaleTarget: f.value });
+  });
+  if (saveList.length === 0 && removeList.length === 0 && targetList.length === 0) { alert('저장할 변경사항이 없습니다.'); return; }
+  if (removeList.length > 0 && !confirm(`체크를 푼 배치 ${removeList.length}건을 취소합니다. 계속할까요?`)) return;
+  // 저장과 취소는 서로 다른 사람·시프트라 동시에 보내도 된다.
+  showLoading();
+  Promise.all([
+    saveList.length ? runScript('batchSaveAssignments', saveList, adminPassword) : null,
+    removeList.length ? runScript('batchRemoveAssignments', removeList, adminPassword) : null,
+    targetList.length ? runScript('batchSaveTargets', targetList, adminPassword) : null
+  ])
+    .then(([res]) => { if (res && res.skipped) alert(res.skipped + '명은 그사이 신청이 취소되어 저장하지 못했습니다.'); })
+    .catch(err => alert('저장 오류: ' + err.message))
+    .then(() => { hideLoading(); saveScrollForRefresh(); loadAdmin(); });
 }
 
 function setLocationFilter(loc) {
@@ -3677,6 +3706,7 @@ function renderAdmin(records, assignments, targets) {
   }
 
   content.innerHTML = html;
+  snapshotBoardAssigned_();
   addScrollArrows(content);
   syncDateEditToolbar();
   applyPendingCellStyles();

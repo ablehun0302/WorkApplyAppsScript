@@ -174,7 +174,7 @@ Google Apps Script 기반 웹앱으로, 서버 로직(`Code.gs` + `SheetData.gs`
 
 `makeAppliedLookup_()`(Data F열 `shiftsJSON` → (key, 날짜, 시프트) 신청 여부)을 추가해 두 저장 함수에서 거른다. 검사는 **새 행을 만드는 경우에만** 한다 — 기존 행 덮어쓰기는 지난 근무 기록의 층·교육 플래그 수정 같은 정상 작업이고, 전체 취소로 `Data` 행이 사라진 사람의 과거 배치(2026-09-04(4) 항목에서 일부러 보존한 기록)를 수정할 수 없게 되는 부작용도 막기 위해서다. 신청 여부를 모든 저장에 걸면 그 기록이 읽기 전용이 된다.
 
-`saveAssignment`는 기존 `setShiftLocation`과 같이 `false`를 돌려주고(GAS에서 false 반환은 성공이라 클라이언트가 직접 알린다), `batchSaveAssignments`는 건너뛴 건수를 세어 `{saved, skipped}`를 돌려준다. 관리자 화면 네 곳(`setCellFloor`, `assignPerson`, `batchAssign`, `saveInfoEditChanges`)이 이 값을 받아 안내하고 화면을 새로 불러온다.
+`saveAssignment`는 기존 `setShiftLocation`과 같이 `false`를 돌려주고(GAS에서 false 반환은 성공이라 클라이언트가 직접 알린다), `batchSaveAssignments`는 건너뛴 건수를 세어 `{saved, skipped}`를 돌려준다. 관리자 화면 네 곳(`setCellFloor`, `batchAssign`, `saveBoardAssignedChanges`, `saveInfoEditChanges`)이 이 값을 받아 안내하고 화면을 새로 불러온다.
 
 ### 2026-09-29: 근무자가 날짜마다 다른 근무지를 신청할 수 있게 함
 
