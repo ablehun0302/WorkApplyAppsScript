@@ -46,10 +46,11 @@ function test(name, fn) {
   console.log('ok - ' + name);
 }
 
-test('DATA_HEADERS: 지역은 M열(13번째)이다', () => {
+test('DATA_HEADERS: 지역은 M열(13번째), 별칭은 N열(14번째)이다', () => {
   const headers = headersOf(load([]).server);
-  assert.strictEqual(headers.length, 13);
+  assert.strictEqual(headers.length, 14);
   assert.strictEqual(headers[12], 'region');
+  assert.strictEqual(headers[13], 'alias');
 });
 
 test('setRegion: 그 사람의 M열에 쓰고, 앞뒤 공백은 지운다', () => {

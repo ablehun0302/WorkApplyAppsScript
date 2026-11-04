@@ -310,7 +310,7 @@ function cleanupDefaultSheets_(ss) {
   });
 }
 
-const DATA_HEADERS = ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent', 'region'];
+const DATA_HEADERS = ['key', 'name', 'phone', 'pin', 'updatedAt', 'shiftsJSON', 'locationsJSON', 'adminLocation', 'message', 'gender', 'adminGender', 'adConsent', 'region', 'alias'];
 
 // D열(pin) 텍스트 서식: 앞자리 0 유실 방지. 기존 시트는 예전 코드가 이미 적용해 두었으므로 만들 때만 건다.
 function getDataSheet_() {
