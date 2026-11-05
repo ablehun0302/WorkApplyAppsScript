@@ -334,6 +334,8 @@ function transportsFor(loc) {
 }
 // 배치판 목록·복사 텍스트를 성별(남/여)이 아니라 배치정보로 묶어 보여주는 업체. 그 업체 탭에서만 적용된다.
 const FLOOR_GROUPED_LOCATIONS = ['포장우리와_금왕','물류우리와_금왕'];
+// 야간 근무가 다음날 주간으로 이어지는 업체. 그 업체 탭의 배치판은 카드 하나에 금일 야간·익일 주간을 묶는다.
+const NIGHT_FIRST_LOCATIONS = ['BGF푸드_진천'];
 // 배치정보 순으로 정렬된 배치 목록을 같은 배치정보끼리 묶는다. 묶음 순서는 목록에 처음 나온 순서.
 function groupByFloor_(list) {
   const groups = [];
@@ -511,11 +513,14 @@ function kitchenAssignSuffix(a, recByKey) {
 }
 // floorGroups(groupByFloor_ 결과)가 있으면 성별 대신 배치정보별로 묶은 문자를 만든다.
 function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList, femaleList, keyToPin, withBirth, recByKey, floorGroups, textTail) {
-  // 배치한 사람이 아무도 없으면 날짜·시프트 줄도 쓰지 않는다
-  if (floorGroups ? floorGroups.length === 0 : maleList.length + femaleList.length === 0) return '';
+  // 배치한 사람이 아무도 없으면 날짜·시프트 줄도 쓰지 않는다(BGF푸드 탭은 0명이어도 적는다)
+  const isBgf = currentLocationFilter === 'BGF푸드_진천';
+  if (!isBgf && (floorGroups ? floorGroups.length === 0 : maleList.length + femaleList.length === 0)) return '';
   const lines = [];
   const nameTail = (a) => textTail ? textTail(a, recByKey) : textFloorSuffix_(a);
-  lines.push(shortDate(dateStr) + ' ' + shiftLabel);
+  const d = new Date(dateStr);
+  // BGF푸드는 "11.4월요일 야간3"처럼 배치 인원 합계를 헤더에 붙이고 목표 남/여 줄은 쓰지 않는다.
+  lines.push(isBgf ? `${d.getMonth()+1}.${d.getDate()}${DAY_NAMES[d.getDay()]}요일 ${shiftLabel}${maleList.length + femaleList.length}` : shortDate(dateStr) + ' ' + shiftLabel);
   if (floorGroups) {
     if (floorGroups.length > 0) lines.push(`${floorSummary_(floorGroups)} (현재 ${floorGroups.reduce((n, g) => n + g.list.length, 0)}명)`);
     const seq = genderSeq_(floorGroups);
@@ -534,7 +539,7 @@ function buildShiftText(dateStr, shiftLabel, maleTarget, femaleTarget, maleList,
   // 목표와 현재 인원이 같으면 목표만 적는다
   const targetText = `남${maleTarget} 여${femaleTarget}`;
   const sameAsTarget = Number(maleTarget) === maleList.length && Number(femaleTarget) === femaleList.length;
-  lines.push(sameAsTarget ? targetText : `${targetText}(현재 남${maleList.length} 여${femaleList.length})`);
+  if (!isBgf) lines.push(sameAsTarget ? targetText : `${targetText}(현재 남${maleList.length} 여${femaleList.length})`);
   if (maleList.length > 0) lines.push('');
   maleList.forEach((a, idx) => {
     const edu = a.isEducation ? '■교육' : '';
@@ -3427,29 +3432,39 @@ function buildAssignBoard(allDates, byDate, assignments, targets, allowedKeys, r
   html += `<div class="period-caption">현재 보기: <b>${viewLabel}</b> · 목표 인원을 입력하고, 신청자를 눌러 배치하세요. (각 주차별 신청횟수 기준 정렬)</div>`;
 
   html += '<div class="assign-board-grid">';
-  allDates.forEach(d => {
-    const dateStr = formatDate(d);
-    const keyToTotalCount = week1Set.has(dateStr) ? keyToWeek1Count : keyToWeek2Count;
-    const dayTarget = targets.find(t => t.date === dateStr && t.shift === 'day');
-    const nightTarget = targets.find(t => t.date === dateStr && t.shift === 'night');
-    const dayApplicants = (byDate[dateStr] && byDate[dateStr].day) || [];
-    const nightApplicants = (byDate[dateStr] && byDate[dateStr].night) || [];
-    const hasAssignedThisDate = assignments.some(a => a.date === dateStr && (!allowedKeys || allowedKeys.has(a.key)));
-    if (allowedKeys && dayApplicants.length === 0 && nightApplicants.length === 0 && !hasAssignedThisDate) return;
+  // 카드마다 { id, title, slots: [[날짜, 시프트], ...] }. 보통은 하루의 주간·야간을 묶는다.
+  const dateStrs = allDates.map(formatDate);
+  const cards = NIGHT_FIRST_LOCATIONS.indexOf(currentLocationFilter) > -1
+    // 첫날 주간은 짝이 되는 전날 야간이 기간 밖이라 따로, 마지막 날 야간은 익일 주간이 기간 밖이라 혼자 둔다.
+    ? [{ id: dateStrs[0] + '_dayonly', title: shortDate(dateStrs[0]) + ' 주간', slots: [[dateStrs[0], 'day']] }].concat(dateStrs.map((ds, i) => {
+        const next = dateStrs[i + 1];
+        return next
+          ? { id: ds, title: `${shortDate(ds)} 야간 · ${shortDate(next)} 주간`, slots: [[ds, 'night'], [next, 'day']] }
+          : { id: ds, title: shortDate(ds) + ' 야간', slots: [[ds, 'night']] };
+      }))
+    : dateStrs.map(ds => ({ id: ds, title: shortDate(ds), slots: [[ds, 'day'], [ds, 'night']] }));
+
+  cards.forEach(card => {
+    const applicantsOf = ([ds, shift]) => (byDate[ds] && byDate[ds][shift]) || [];
+    const hasAssigned = assignments.some(a => card.slots.some(([ds, shift]) => a.date === ds && a.shift === shift) && (!allowedKeys || allowedKeys.has(a.key)));
+    if (allowedKeys && card.slots.every(s => applicantsOf(s).length === 0) && !hasAssigned) return;
 
     html += `<div class="assign-date-card collapsed">`;
     const titleBadge = currentLocationFilter !== '전체' ? ` <span class="loc-badge">${viewLabel}</span>` : '';
-    html += `<div class="assign-date-title" onclick="this.closest('.assign-date-card').classList.toggle('collapsed')"><span>${shortDate(dateStr)}${titleBadge}</span><span class="assign-date-toggle">▼</span></div>`;
+    html += `<div class="assign-date-title" onclick="this.closest('.assign-date-card').classList.toggle('collapsed')"><span>${card.title}${titleBadge}</span><span class="assign-date-toggle">▼</span></div>`;
     html += `<div class="assign-date-body">`;
-    html += buildShiftBlock(dateStr, 'day', dayApplicants, assignments, dayTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
-    html += buildShiftBlock(dateStr, 'night', nightApplicants, assignments, nightTarget, allowedKeys, recByKey, keyToPin, keyToTotalCount);
+    card.slots.forEach(([ds, shift]) => {
+      const keyToTotalCount = week1Set.has(ds) ? keyToWeek1Count : keyToWeek2Count;
+      const target = targets.find(t => t.date === ds && t.shift === shift);
+      html += buildShiftBlock(ds, shift, applicantsOf([ds, shift]), assignments, target, allowedKeys, recByKey, keyToPin, keyToTotalCount);
+    });
+    const dateStr = card.id;
     const taId = `text_${dateStr}`;
     const msgId = `copymsg_${dateStr}`;
-    const dayText = shiftTextCache[`text_${dateStr}_day`];
-    const nightText = shiftTextCache[`text_${dateStr}_night`];
+    const texts = card.slots.map(([ds, shift]) => shiftTextCache[`text_${ds}_${shift}`]);
     shiftTextCache[taId] = {
-      withBirth: [dayText.withBirth, nightText.withBirth].filter(Boolean).join('\n\n'),
-      withoutBirth: [dayText.withoutBirth, nightText.withoutBirth].filter(Boolean).join('\n\n')
+      withBirth: texts.map(t => t.withBirth).filter(Boolean).join('\n\n'),
+      withoutBirth: texts.map(t => t.withoutBirth).filter(Boolean).join('\n\n')
     };
     const withBirth = birthInCopyDates.has(dateStr);
     const previewText = withBirth ? shiftTextCache[taId].withBirth : shiftTextCache[taId].withoutBirth;
