@@ -47,6 +47,17 @@ function toggleHamburgerMenu() {
 function closeHamburgerMenu() {
   document.getElementById('hamburgerMenu').style.display = 'none';
 }
+
+// ---- 모바일 홈 화면 바로가기 안내 (근무신청·관리자 화면만) ----
+const SHORTCUT_NAMES = { worker: '근무신청', admin: '관리자' };
+document.addEventListener('DOMContentLoaded', function() {
+  if (SHORTCUT_NAMES[PAGE_KEY]) document.getElementById('shortcutBtn').style.display = '';
+});
+function showShortcutGuide() {
+  document.querySelectorAll('.shortcut-name').forEach(el => { el.textContent = SHORTCUT_NAMES[PAGE_KEY]; });
+  document.getElementById('shortcutOverlay').style.display = 'flex';
+}
+
 document.addEventListener('click', function(e) {
   const menu = document.getElementById('hamburgerMenu');
   if (menu.style.display === 'none') return;

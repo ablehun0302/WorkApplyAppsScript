@@ -16,7 +16,7 @@ function requireAdmin_(pw) {
   if (!expected || pw !== expected) throw new Error('관리자 인증이 필요합니다.');
 }
 
-var PAGE_FILES = { home: 'Home', worker: 'WorkerView', admin: 'AdminView', upload: 'UploadView' };
+var PAGE_FILES = { home: 'Home', worker: 'WorkerView', admin: 'AdminView' };
 
 function doGet(e) {
   var page = (e && e.parameter && e.parameter.page) || 'home';

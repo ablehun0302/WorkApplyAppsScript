@@ -684,11 +684,11 @@ test('배치 문자: 물류우리와는 배치정보 순서대로 묶고(같은 
   ].join('\n'));
 });
 
-test('배치 문자: 포장우리와도 같은 방식이고, 배치 없는 칸은 안내만 적는다', () => {
+test('배치 문자: 포장우리와도 같은 방식이고, 배치 없는 칸은 아무것도 적지 않는다', () => {
   const v = loadAdminView('');
   v.W("currentLocationFilter = '" + PACK + "'");
   v.W("buildShiftBlock('2026-10-08', 'day', [], [], null, null, {}, {}, {})");
-  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth"), '10/8(목) 주간');
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth"), '');
   const packed = [Object.assign(logiAssign('p1', '홍포장', '남', '원료'), { location: PACK }), Object.assign(logiAssign('p2', '강포장', '여', '포장'), { location: PACK })];
   v.W("buildShiftBlock('2026-10-08', 'day', [], " + JSON.stringify(packed) + ", null, null, {}, { p1: '900101', p2: '850505' }, {})");
   assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_day'].withBirth"),
@@ -705,6 +705,7 @@ test('배치 문자: 성별 묶음은 목표와 현재가 같으면 목표만 �
   };
   assert.strictEqual(text({ maleTarget: '1', femaleTarget: '0' }, [m]), '10/8(목) 주간\n남1 여0\n\n남1.홍남_1층');
   assert.strictEqual(text({ maleTarget: 2, femaleTarget: 0 }, [m]), '10/8(목) 주간\n남2 여0(현재 남1 여0)\n\n남1.홍남_1층');
+  assert.strictEqual(text({ maleTarget: 2, femaleTarget: 0 }, []), '', '배치한 사람이 없으면 아무것도 적지 않는다');
 });
 
 test('배치판: 물류우리와 탭은 목록도 배치정보로 묶고 성별 목표 입력은 없다', () => {
@@ -754,6 +755,31 @@ test('배치 문자: BGF푸드 탭이 아니면 지역·전화번호를 붙이�
     const text = v.W("shiftTextCache['text_2026-10-08_day'].withoutBirth");
     assert.ok(text.indexOf('남1.김남자_1층') > -1 && text.indexOf('010-') === -1, tab + ': ' + text);
   });
+});
+
+test('배치판: BGF푸드 탭은 카드 하나에 금일 야간·익일 주간을 묶는다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + BGF + "'");
+  const assigns = [
+    bgfAssign('b1', '김남자', '남', { date: '2026-10-08', shift: 'day' }),
+    bgfAssign('b2', '박남자', '남', { date: '2026-10-08', shift: 'night' }),
+    bgfAssign('b3', '이여자', '여', { date: '2026-10-09', shift: 'day' }),
+    bgfAssign('b1', '김남자', '남', { date: '2026-10-09', shift: 'night' })
+  ];
+  const html = v.W("buildAssignBoard([new Date(2026, 9, 8), new Date(2026, 9, 9)], {}, " + JSON.stringify(assigns) + ", [], null, " + BGF_RECS + ", {}, {}, {}, new Set())");
+  assert.strictEqual(html.split('<textarea').length - 1, 3, '첫날 주간 카드 + 날짜 2장');
+  assert.ok(html.indexOf('10/8(목) 야간 · 10/9(금) 주간') > -1, '카드 제목');
+  const text = (id) => v.W("shiftTextCache['text_" + id + "'].withoutBirth");
+  assert.strictEqual(text('2026-10-08_dayonly'), '10.8목요일 주간1\n\n남1.김남자/청주/010-1111-2222');
+  assert.strictEqual(text('2026-10-08'), '10.8목요일 야간1\n\n남1.박남자//010-3333-4444\n\n10.9금요일 주간1\n\n여1.이여자/음성/');
+  assert.ok(text('2026-10-09').indexOf('10.9금요일 야간1') === 0 && text('2026-10-09').indexOf('주간') === -1, '마지막 날은 야간만: ' + text('2026-10-09'));
+});
+
+test('배치 문자: BGF푸드 탭은 배치한 사람이 없어도 0명을 적는다', () => {
+  const v = loadAdminView('');
+  v.W("currentLocationFilter = '" + BGF + "'");
+  v.W("buildShiftBlock('2026-10-08', 'night', [], [], { maleTarget: 2, femaleTarget: 1 }, null, {}, {}, {})");
+  assert.strictEqual(v.W("shiftTextCache['text_2026-10-08_night'].withoutBirth"), '10.8목요일 야간0', '목표 남/여 줄은 쓰지 않는다');
 });
 
 // ---- 델몬트_원남: 배치정보는 기본값, 복사 텍스트는 "성별번호.이름_지역" ----

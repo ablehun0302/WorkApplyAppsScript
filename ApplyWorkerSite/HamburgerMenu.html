@@ -1,10 +1,26 @@
 <div class="top-header-row">
   <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleHamburgerMenu()">☰</button>
   <h1>📋 근무 신청 시스템</h1>
+  <button class="shortcut-btn" id="shortcutBtn" onclick="showShortcutGuide()" style="display:none;">📲 바로가기</button>
 </div>
 <div class="hamburger-menu" id="hamburgerMenu" style="display:none;">
   <a class="hamburger-item" href="javascript:void(0)" onclick="goToPage('home')">🏠 홈</a>
   <a class="hamburger-item" href="javascript:void(0)" onclick="goToPage('worker')">신청 / 수정</a>
-  <a class="hamburger-item" href="javascript:void(0)" onclick="goToPage('upload')">서류 제출</a>
   <a class="hamburger-item" href="javascript:void(0)" onclick="goToPage('admin')">관리자 보기</a>
+</div>
+<!-- 웹앱은 iframe 안에서 돌아 홈 화면 추가를 코드로 띄울 수 없으므로 브라우저 메뉴 사용법을 안내한다. -->
+<div id="shortcutOverlay" class="edit-overlay" style="display:none;">
+  <div class="edit-overlay-card">
+    <div class="edit-overlay-title"><span class="shortcut-name"></span> 바로가기 만들기</div>
+    <div class="shortcut-guide">
+      <b>아이폰 (Safari)</b>
+      <ol><li>공유 버튼(□↑)을 누릅니다. 안 보이면 ··· 를 먼저 누릅니다.</li><li>'홈 화면에 추가'를 누르고 이름을 '<span class="shortcut-name"></span>'으로 정합니다.</li></ol>
+      <b>안드로이드 (Chrome)</b>
+      <ol><li>오른쪽 위 ⋮ 메뉴를 누릅니다.</li><li>'설치 및 바로가기 만들기'를 누르고 이름을 '<span class="shortcut-name"></span>'으로 정합니다.</li></ol>
+      <b>안드로이드 (삼성 인터넷)</b>
+      <ol><li>아래쪽 ≡ 메뉴를 누릅니다.</li><li>'현재 페이지 추가' → '홈 화면'을 누릅니다.</li></ol>
+      <p class="hint">카카오톡·문자 안에서 열었다면 먼저 Safari나 Chrome으로 열어 주세요.</p>
+    </div>
+    <button class="primary" onclick="document.getElementById('shortcutOverlay').style.display='none'">닫기</button>
+  </div>
 </div>
